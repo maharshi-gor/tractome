@@ -330,10 +330,8 @@ class Tractome(QMainWindow):
                 self._roi_checkboxes, self._roi_actors, self._roi_slice_actors
             ):
                 checkbox.stateChanged.connect(
-                    lambda state,
-                    actor=roi_actor,
-                    slice_actor=roi_slice: self.toggle_roi_visibility(
-                        actor, state, slice_actor
+                    lambda state, actor=roi_actor, slice_actor=roi_slice: (
+                        self.toggle_roi_visibility(actor, state, slice_actor)
                     )
                 )
 
