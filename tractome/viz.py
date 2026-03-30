@@ -15,7 +15,7 @@ def create_keystroke_card():
     """
     group = actor.Group()
     card = actor.square(
-        np.asarray([(35, 40, 0)], dtype=np.float32),
+        np.asarray([(70, 90, 0.2)], dtype=np.float32),
         colors=(0.1, 0.1, 0.1),
         scales=(140, 185, 1),
         material="basic",
@@ -42,6 +42,7 @@ def create_keystroke_card():
         txt_actor = actor.text(
             text, position=(left, y, 0), font_size=12.0, anchor="top-left"
         )
+        txt_actor.local.position = (left, y, 0.1)
         group.add(txt_actor)
     group.add(card)
     return group
