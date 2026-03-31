@@ -2,9 +2,9 @@ import click
 from dipy.tracking.distances import bundles_distances_mam, bundles_distances_mdf
 import numpy as np
 
-from tractome.app import Tractome
+from old.app import Tractome
+from old.io import read_tractogram, save_tractogram
 from tractome.compute import compute_dissimilarity
-from tractome.io import read_tractogram, save_tractogram
 
 
 @click.command(name="tractome")

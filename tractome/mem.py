@@ -3,6 +3,178 @@ from dataclasses import dataclass
 import numpy as np
 
 
+class InputManager:
+    """Manage input file paths and track the currently active items.
+
+    This manager stores tractogram, T1, mesh, mesh texture, ROI, and parcel
+    file paths while keeping the index of the currently selected item for each
+    input type.
+    """
+
+    def __init__(self):
+        """Manage input file paths and track the currently active items.
+
+        This manager stores tractogram, T1, mesh, mesh texture, ROI, and
+        parcel file paths while keeping the index of the currently selected
+        item for each input type.
+        """
+        self._tractograms = []
+        self._t1s = []
+        self._meshes = []
+        self._mesh_textures = []
+        self._rois = []
+        self._parcels = []
+
+        self._current_tractogram = -1
+        self._current_t1 = -1
+        self._current_mesh = -1
+        self._current_roi = -1
+        self._current_parcel = -1
+
+    def add_tractogram(self, tractogram):
+        """Add a tractogram path and make it the current tractogram.
+
+        Parameters
+        ----------
+        tractogram : str
+            Path to the tractogram file to store.
+        """
+        self._tractograms.append(tractogram)
+        self._current_tractogram = len(self._tractograms) - 1
+
+    def add_t1(self, t1):
+        """Add a T1 image path and make it the current T1 image.
+
+        Parameters
+        ----------
+        t1 : str
+            Path to the T1 image file to store.
+        """
+        self._t1s.append(t1)
+        self._current_t1 = len(self._t1s) - 1
+
+    def add_mesh(self, mesh, mesh_texture):
+        """Add a mesh path and its texture path, and make them current.
+
+        Parameters
+        ----------
+        mesh : str
+            Path to the mesh file to store.
+        mesh_texture : str
+            Path to the texture file associated with ``mesh``.
+        """
+        self._meshes.append(mesh)
+        self._mesh_textures.append(mesh_texture)
+        self._current_mesh = len(self._meshes) - 1
+
+    def add_roi(self, roi):
+        """Add an ROI path and make it the current ROI.
+
+        Parameters
+        ----------
+        roi : str
+            Path to the ROI file to store.
+        """
+        self._rois.append(roi)
+        self._current_roi = len(self._rois) - 1
+
+    def add_parcel(self, parcel):
+        """Add a parcel path and make it the current parcel.
+
+        Parameters
+        ----------
+        parcel : str
+            Path to the parcel file to store.
+        """
+        self._parcels.append(parcel)
+        self._current_parcel = len(self._parcels) - 1
+
+    def get_current_tractogram(self):
+        """Return the current tractogram path.
+
+        Returns
+        -------
+        str
+            Path to the currently selected tractogram file.
+
+        Raises
+        ------
+        ValueError
+            If no tractogram is available.
+        """
+        if self._current_tractogram == -1:
+            raise ValueError("No tractogram available.")
+        return self._tractograms[self._current_tractogram]
+
+    def get_current_t1(self):
+        """Return the current T1 image path.
+
+        Returns
+        -------
+        str
+            Path to the currently selected T1 image file.
+
+        Raises
+        ------
+        ValueError
+            If no T1 image is available.
+        """
+        if self._current_t1 == -1:
+            raise ValueError("No T1 image available.")
+        return self._t1s[self._current_t1]
+
+    def get_current_mesh(self):
+        """Return the current mesh path.
+
+        Returns
+        -------
+        str
+            Path to the currently selected mesh file.
+
+        Raises
+        ------
+        ValueError
+            If no mesh is available.
+        """
+        if self._current_mesh == -1:
+            raise ValueError("No mesh available.")
+        return self._meshes[self._current_mesh]
+
+    def get_current_roi(self):
+        """Return the current ROI path.
+
+        Returns
+        -------
+        str
+            Path to the currently selected ROI file.
+
+        Raises
+        ------
+        ValueError
+            If no ROI is available.
+        """
+        if self._current_roi == -1:
+            raise ValueError("No ROI available.")
+        return self._rois[self._current_roi]
+
+    def get_current_parcel(self):
+        """Return the current parcel path.
+
+        Returns
+        -------
+        str
+            Path to the currently selected parcel file.
+
+        Raises
+        ------
+        ValueError
+            If no parcel is available.
+        """
+        if self._current_parcel == -1:
+            raise ValueError("No parcel available.")
+        return self._parcels[self._current_parcel]
+
+
 @dataclass
 class ClusterState:
     """A class to represent the state of the application."""
