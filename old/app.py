@@ -14,7 +14,7 @@ from fury.lib import (
     PerspectiveCamera,
     TrackballController,
 )
-from old.io import (
+from tractome.io import (
     read_csv,
     read_mesh,
     read_nifti,

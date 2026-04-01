@@ -174,6 +174,23 @@ class InputManager:
             raise ValueError("No parcel available.")
         return self._parcels[self._current_parcel]
 
+    def has_input(self):
+        """Check if any input is available.
+
+        Returns
+        -------
+        bool
+            True if at least one input type has at least one item, False
+            otherwise.
+        """
+        return (
+            len(self._tractograms) > 0
+            or len(self._t1s) > 0
+            or len(self._meshes) > 0
+            or len(self._rois) > 0
+            or len(self._parcels) > 0
+        )
+
 
 @dataclass
 class ClusterState:

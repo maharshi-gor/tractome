@@ -9,3 +9,19 @@ QPushButton {
   border-radius: 5px;
   padding: 5px;
 }
+
+/* Specific Styles */
+#titleLabel {
+  font-size: 48pt;
+  font-weight: bold;
+  color: white;
+  letter-spacing: 5px;
+}
+
+#startUploadButton {
+  background: #333;
+  color: white;
+  font-size: 14pt;
+  border-radius: 5px;
+  border: 2px solid white;
+}

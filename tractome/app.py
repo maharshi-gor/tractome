@@ -1,9 +1,11 @@
+import logging
 import sys
 
-from PySide6.QtWidgets import QApplication, QMainWindow
+from PySide6.QtWidgets import QApplication, QMainWindow, QStackedWidget
 
+from tractome.io import get_file_extension
 from tractome.mem import InputManager
-from tractome.ui import load_style_sheet
+from tractome.ui import StartScreen, load_style_sheet
 
 app = QApplication.instance() or QApplication([])
 
@@ -78,6 +80,26 @@ class Tractome(QMainWindow):
         if parcel is not None:
             self._input_manager.add_parcel(parcel)
 
+    def _completed_start_screen(self, file_path):
+        """Handle the completion of the start screen."""
+        self._file_uploaded(file_path)
+        logging.info("File uploaded, switching to main screen.")
+        # self._stack.setCurrentIndex(1)
+
+    def _file_uploaded(self, file_path):
+        """Handle the file uploaded event.
+
+        Parameters
+        ----------
+        file_path : str
+            Path of the uploaded file.
+        """
+
+        ext = get_file_extension(file_path)
+
+        if ext in (".trx", ".trk"):
+            self._input_manager.add_tractogram(file_path)
+
     def _initialize_window(self):
         """Initialize the window"""
         self.setWindowTitle("Tractome")
@@ -85,11 +107,15 @@ class Tractome(QMainWindow):
         style_sheet = load_style_sheet()
         self.setStyleSheet(style_sheet)
 
-        # self._stack = QStackedWidget()
-        # self.setCentralWidget(self._stack)
+        self._stack = QStackedWidget()
+        self.setCentralWidget(self._stack)
+
+        if not self._input_manager.has_input():
+            self._start_screen = StartScreen(on_uploading_done=self._file_uploaded)
+            self._stack.addWidget(self._start_screen)
 
 
 if __name__ == "__main__":
-    tractome = Tractome(tractogram="computed.trx")
+    tractome = Tractome()
     tractome.show()
     sys.exit(app.exec())
