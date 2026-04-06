@@ -1,4 +1,3 @@
-import logging
 import sys
 
 from PySide6.QtWidgets import QApplication, QMainWindow, QStackedWidget
@@ -81,9 +80,14 @@ class Tractome(QMainWindow):
             self._input_manager.add_parcel(parcel)
 
     def _completed_start_screen(self, file_path):
-        """Handle the completion of the start screen."""
+        """Handle the completion of the start screen.
+
+        Parameters
+        ----------
+        file_path : str
+            Path of the uploaded file.
+        """
         self._file_uploaded(file_path)
-        logging.info("File uploaded, switching to main screen.")
         self._stack.setCurrentIndex(1)
 
     def _file_uploaded(self, file_path):
@@ -119,8 +123,18 @@ class Tractome(QMainWindow):
         self._interaction_screen = InteractionScreen()
         self._stack.addWidget(self._interaction_screen)
 
+    def _read_inputs(self):
+        """Read the inputs from the input manager.
+
+        Returns
+        -------
+        dict
+            A dictionary containing the loaded inputs.
+        """
+        pass
+
 
 if __name__ == "__main__":
-    tractome = Tractome()
+    tractome = Tractome(tractogram="computed.trx")
     tractome.show()
     sys.exit(app.exec())

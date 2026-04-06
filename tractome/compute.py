@@ -427,10 +427,6 @@ def _get_line_ids_from_positions(wobj, positions):
 
 
 def filter_streamline_ids(streamlines, roi, *, origin=(0, 0, 0)):
-    # TODO: Remove after FURY v2.0.0a6
-    if roi is not None and roi.ndim == 3:
-        roi = np.swapaxes(roi, 0, 2)
-
     max = np.asarray(streamlines[0], dtype=np.float32).max(axis=0)
     min = np.asarray(streamlines[0], dtype=np.float32).min(axis=0)
 

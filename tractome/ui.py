@@ -131,13 +131,13 @@ class InteractionScreen(QWidget):
         main_layout.setContentsMargins(10, 10, 10, 10)
         main_layout.setSpacing(15)
 
-        self._left_section = LeftSectionWidget()
-        self._center_section = CenterSectionWidget()
-        self._right_section = RightSectionWidget()
+        self.left_section = LeftSectionWidget()
+        self.center_section = CenterSectionWidget()
+        self.right_section = RightSectionWidget()
 
-        main_layout.addWidget(self._left_section, 1)
-        main_layout.addWidget(self._center_section, 3)
-        main_layout.addWidget(self._right_section, 1)
+        main_layout.addWidget(self.left_section, 1)
+        main_layout.addWidget(self.center_section, 3)
+        main_layout.addWidget(self.right_section, 1)
 
 
 class LeftSectionWidget(QFrame):

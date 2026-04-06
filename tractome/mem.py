@@ -2,6 +2,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from tractome.io import read_csv, read_mesh, read_nifti, read_tractogram
+
 
 class InputManager:
     """Manage input file paths and track the currently active items.
@@ -18,18 +20,32 @@ class InputManager:
         parcel file paths while keeping the index of the currently selected
         item for each input type.
         """
-        self._tractograms = []
-        self._t1s = []
-        self._meshes = []
-        self._mesh_textures = []
-        self._rois = []
-        self._parcels = []
+        self._provided_inputs = {
+            "tractogram": [],
+            "t1": [],
+            "mesh": [],
+            "mesh_texture": [],
+            "roi": [],
+            "parcel": [],
+        }
 
-        self._current_tractogram = -1
-        self._current_t1 = -1
-        self._current_mesh = -1
-        self._current_roi = -1
-        self._current_parcel = -1
+        self._current_inputs = {
+            "tractogram": -1,
+            "t1": -1,
+            "mesh": -1,
+            "mesh_texture": -1,
+            "roi": -1,
+            "parcel": -1,
+        }
+
+        self._loaded_inputs = {
+            "tractogram": None,
+            "t1": None,
+            "mesh": None,
+            "mesh_texture": None,
+            "roi": None,
+            "parcel": None,
+        }
 
     def add_tractogram(self, tractogram):
         """Add a tractogram path and make it the current tractogram.
@@ -39,8 +55,8 @@ class InputManager:
         tractogram : str
             Path to the tractogram file to store.
         """
-        self._tractograms.append(tractogram)
-        self._current_tractogram = len(self._tractograms) - 1
+        self._provided_inputs["tractogram"].append(tractogram)
+        self._current_inputs["tractogram"] = len(self._tractograms) - 1
 
     def add_t1(self, t1):
         """Add a T1 image path and make it the current T1 image.
@@ -50,8 +66,8 @@ class InputManager:
         t1 : str
             Path to the T1 image file to store.
         """
-        self._t1s.append(t1)
-        self._current_t1 = len(self._t1s) - 1
+        self._provided_inputs["t1"].append(t1)
+        self._current_inputs["t1"] = len(self._t1s) - 1
 
     def add_mesh(self, mesh, mesh_texture):
         """Add a mesh path and its texture path, and make them current.
@@ -63,9 +79,9 @@ class InputManager:
         mesh_texture : str
             Path to the texture file associated with ``mesh``.
         """
-        self._meshes.append(mesh)
-        self._mesh_textures.append(mesh_texture)
-        self._current_mesh = len(self._meshes) - 1
+        self._provided_inputs["mesh"].append(mesh)
+        self._provided_inputs["mesh_texture"].append(mesh_texture)
+        self._current_inputs["mesh"] = len(self._meshes) - 1
 
     def add_roi(self, roi):
         """Add an ROI path and make it the current ROI.
@@ -75,8 +91,8 @@ class InputManager:
         roi : str
             Path to the ROI file to store.
         """
-        self._rois.append(roi)
-        self._current_roi = len(self._rois) - 1
+        self._provided_inputs["roi"].append(roi)
+        self._current_inputs["roi"] = len(self._rois) - 1
 
     def add_parcel(self, parcel):
         """Add a parcel path and make it the current parcel.
@@ -86,8 +102,8 @@ class InputManager:
         parcel : str
             Path to the parcel file to store.
         """
-        self._parcels.append(parcel)
-        self._current_parcel = len(self._parcels) - 1
+        self._provided_inputs["parcel"].append(parcel)
+        self._current_inputs["parcel"] = len(self._parcels) - 1
 
     def get_current_tractogram(self):
         """Return the current tractogram path.
@@ -102,9 +118,23 @@ class InputManager:
         ValueError
             If no tractogram is available.
         """
-        if self._current_tractogram == -1:
+        if self._current_inputs["tractogram"] == -1:
             raise ValueError("No tractogram available.")
-        return self._tractograms[self._current_tractogram]
+
+        idx = self._current_inputs["tractogram"]
+        if (
+            self._loaded_inputs["tractogram"] is not None
+            and self._loaded_inputs["tractogram"][3] == idx
+        ):
+            return self._loaded_inputs["tractogram"]
+
+        path = self._provided_inputs["tractogram"][idx]
+        reference = None
+        if self._current_inputs["t1"] != -1:
+            reference = self._provided_inputs["t1"][self._current_inputs["t1"]]
+        sft = read_tractogram(path, reference=reference)
+        self._loaded_inputs["tractogram"] = (sft, reference, path, idx)
+        return self._loaded_inputs["tractogram"]
 
     def get_current_t1(self):
         """Return the current T1 image path.
@@ -119,9 +149,20 @@ class InputManager:
         ValueError
             If no T1 image is available.
         """
-        if self._current_t1 == -1:
+        if self._current_inputs["t1"] == -1:
             raise ValueError("No T1 image available.")
-        return self._t1s[self._current_t1]
+
+        idx = self._current_inputs["t1"]
+        if (
+            self._loaded_inputs["t1"] is not None
+            and self._loaded_inputs["t1"][3] == idx
+        ):
+            return self._loaded_inputs["t1"]
+
+        path = self._provided_inputs["t1"][idx]
+        nifti_img, affine = read_nifti(path)
+        self._loaded_inputs["t1"] = (nifti_img, affine, path, idx)
+        return self._loaded_inputs["t1"]
 
     def get_current_mesh(self):
         """Return the current mesh path.
@@ -136,9 +177,24 @@ class InputManager:
         ValueError
             If no mesh is available.
         """
-        if self._current_mesh == -1:
+        if self._current_inputs["mesh"] == -1:
             raise ValueError("No mesh available.")
-        return self._meshes[self._current_mesh]
+        idx = self._current_inputs["mesh"]
+        if (
+            self._loaded_inputs["mesh"] is not None
+            and self._loaded_inputs["mesh"][3] == idx
+        ):
+            return self._loaded_inputs["mesh"]
+
+        path = self._provided_inputs["mesh"][idx]
+        texture = None
+        if self._current_inputs["mesh_texture"] != -1:
+            texture = self._provided_inputs["mesh_texture"][
+                self._current_inputs["mesh_texture"]
+            ]
+        mesh = read_mesh(path, texture=texture)
+        self._loaded_inputs["mesh"] = (mesh, texture, path, idx)
+        return self._loaded_inputs["mesh"]
 
     def get_current_roi(self):
         """Return the current ROI path.
@@ -153,9 +209,19 @@ class InputManager:
         ValueError
             If no ROI is available.
         """
-        if self._current_roi == -1:
+        if self._current_inputs["roi"] == -1:
             raise ValueError("No ROI available.")
-        return self._rois[self._current_roi]
+        idx = self._current_inputs["roi"]
+        if (
+            self._loaded_inputs["roi"] is not None
+            and self._loaded_inputs["roi"][3] == idx
+        ):
+            return self._loaded_inputs["roi"]
+
+        path = self._provided_inputs["roi"][idx]
+        roi, affine = read_nifti(path)
+        self._loaded_inputs["roi"] = (roi, affine, path, idx)
+        return self._loaded_inputs["roi"]
 
     def get_current_parcel(self):
         """Return the current parcel path.
@@ -170,9 +236,19 @@ class InputManager:
         ValueError
             If no parcel is available.
         """
-        if self._current_parcel == -1:
+        if self._current_inputs["parcel"] == -1:
             raise ValueError("No parcel available.")
-        return self._parcels[self._current_parcel]
+        idx = self._current_inputs["parcel"]
+        if (
+            self._loaded_inputs["parcel"] is not None
+            and self._loaded_inputs["parcel"][3] == idx
+        ):
+            return self._loaded_inputs["parcel"]
+
+        path = self._provided_inputs["parcel"][idx]
+        points, colors = read_csv(path, delimiter=" ", has_header=False)
+        self._loaded_inputs["parcel"] = (points, colors, path, idx)
+        return self._loaded_inputs["parcel"]
 
     def has_input(self):
         """Check if any input is available.
@@ -184,11 +260,11 @@ class InputManager:
             otherwise.
         """
         return (
-            len(self._tractograms) > 0
-            or len(self._t1s) > 0
-            or len(self._meshes) > 0
-            or len(self._rois) > 0
-            or len(self._parcels) > 0
+            len(self._provided_inputs["tractogram"]) > 0
+            or len(self._provided_inputs["t1"]) > 0
+            or len(self._provided_inputs["mesh"]) > 0
+            or len(self._provided_inputs["roi"]) > 0
+            or len(self._provided_inputs["parcel"]) > 0
         )
 
 
