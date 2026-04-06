@@ -24,19 +24,6 @@ from old.ui import (
     create_ui,
     update_history_table,
 )
-from old.viz import (
-    _deselect_streamtube,
-    _select_streamtube,
-    _toggle_streamtube_selection,
-    create_image_slicer,
-    create_keystroke_card,
-    create_mesh,
-    create_parcels,
-    create_roi,
-    create_streamlines,
-    create_streamlines_projection,
-    create_streamtube,
-)
 from tractome.compute import (
     calculate_filter,
     filter_streamline_ids,
@@ -51,6 +38,19 @@ from tractome.io import (
     save_tractogram_from_streamlines,
 )
 from tractome.mem import ClusterState, StateManager
+from tractome.viz import (
+    _deselect_streamtube,
+    _select_streamtube,
+    _toggle_streamtube_selection,
+    create_image_slicer,
+    create_keystroke_card,
+    create_mesh,
+    create_parcels,
+    create_roi,
+    create_streamlines,
+    create_streamlines_projection,
+    create_streamtube,
+)
 
 app = QApplication([])
 # Qt.Checked

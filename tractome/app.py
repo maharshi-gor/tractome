@@ -1,9 +1,7 @@
-import sys
-
 from PySide6.QtWidgets import QApplication, QMainWindow, QStackedWidget
 
 from tractome.io import get_file_extension
-from tractome.mem import InputManager
+from tractome.mem import input_manager, visualization_manager
 from tractome.ui import InteractionScreen, StartScreen, load_style_sheet
 
 app = QApplication.instance() or QApplication([])
@@ -43,7 +41,6 @@ class Tractome(QMainWindow):
             Path to a parcel CSV file
         """
         super().__init__()
-        self._input_manager = InputManager()
         self._initialize_input_manager(tractogram, t1, mesh, mesh_texture, roi, parcel)
         self._initialize_window()
 
@@ -68,16 +65,16 @@ class Tractome(QMainWindow):
             Path of parcel to showcase.
         """
         if tractogram is not None:
-            self._input_manager.add_tractogram(tractogram)
+            input_manager.add_tractogram(tractogram)
         if t1 is not None:
-            self._input_manager.add_t1(t1)
+            input_manager.add_t1(t1)
         if mesh is not None and mesh_texture is not None:
-            self._input_manager.add_mesh(mesh, mesh_texture)
+            input_manager.add_mesh(mesh, mesh_texture)
         if roi is not None:
             for roi_path in roi:
-                self._input_manager.add_roi(roi_path)
+                input_manager.add_roi(roi_path)
         if parcel is not None:
-            self._input_manager.add_parcel(parcel)
+            input_manager.add_parcel(parcel)
 
     def _completed_start_screen(self, file_path):
         """Handle the completion of the start screen.
@@ -102,7 +99,7 @@ class Tractome(QMainWindow):
         ext = get_file_extension(file_path)
 
         if ext in (".trx", ".trk"):
-            self._input_manager.add_tractogram(file_path)
+            input_manager.add_tractogram(file_path)
 
     def _initialize_window(self):
         """Initialize the window"""
@@ -114,7 +111,7 @@ class Tractome(QMainWindow):
         self._stack = QStackedWidget()
         self.setCentralWidget(self._stack)
 
-        if not self._input_manager.has_input():
+        if not input_manager.has_input():
             self._start_screen = StartScreen(
                 on_uploading_done=self._completed_start_screen
             )
@@ -122,19 +119,22 @@ class Tractome(QMainWindow):
 
         self._interaction_screen = InteractionScreen()
         self._stack.addWidget(self._interaction_screen)
+        self._visualize_inputs()
 
-    def _read_inputs(self):
-        """Read the inputs from the input manager.
+    def _visualize_inputs(self):
+        """Visualize the inputs in the interaction screen."""
+        t1_visualization = visualization_manager.visualize_t1()
+        if t1_visualization is not None:
+            self._interaction_screen.add_visualization(t1_visualization)
 
-        Returns
-        -------
-        dict
-            A dictionary containing the loaded inputs.
-        """
-        pass
+    def start(self):
+        """Show the main window and start the FURY/Qt loop."""
+        self.show()
+        self._interaction_screen._center_section.show_manager.start()
 
 
 if __name__ == "__main__":
-    tractome = Tractome(tractogram="computed.trx")
-    tractome.show()
-    sys.exit(app.exec())
+    tractome = Tractome(
+        t1="~/devel/grg_data/demo_data_tractome/neuvircarv_SLS_bradipho/sub-16_epo-00_ref-ACPC_brain_t1.nii"
+    )
+    tractome.start()

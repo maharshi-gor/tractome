@@ -4,6 +4,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
+    QApplication,
     QFileDialog,
     QFrame,
     QHBoxLayout,
@@ -12,6 +13,16 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QVBoxLayout,
     QWidget,
+)
+
+from fury import window
+from fury.lib import (
+    DirectionalLight,
+    Event,
+    OrthographicCamera,
+    PanZoomController,
+    PerspectiveCamera,
+    TrackballController,
 )
 
 ASSETS_PATH = Path(__file__).resolve().parent / "assets"
@@ -131,13 +142,17 @@ class InteractionScreen(QWidget):
         main_layout.setContentsMargins(10, 10, 10, 10)
         main_layout.setSpacing(15)
 
-        self.left_section = LeftSectionWidget()
-        self.center_section = CenterSectionWidget()
-        self.right_section = RightSectionWidget()
+        self._left_section = LeftSectionWidget()
+        self._center_section = CenterSectionWidget()
+        self._right_section = RightSectionWidget()
 
-        main_layout.addWidget(self.left_section, 1)
-        main_layout.addWidget(self.center_section, 3)
-        main_layout.addWidget(self.right_section, 1)
+        main_layout.addWidget(self._left_section, 1)
+        main_layout.addWidget(self._center_section, 3)
+        main_layout.addWidget(self._right_section, 1)
+
+    def add_visualization(self, visualization):
+        """Add a visualization to the center section."""
+        self._center_section.add_visualization(visualization)
 
 
 class LeftSectionWidget(QFrame):
@@ -165,7 +180,72 @@ class CenterSectionWidget(QFrame):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(10)
-        layout.addStretch()
+
+        self._3D_scene = window.Scene(background=(0.2, 0.2, 0.2))
+        self._3D_camera = PerspectiveCamera()
+        self._3D_camera.add(DirectionalLight())
+        self._3D_scene.add(self._3D_camera)
+        self._3D_controller = TrackballController(self._3D_camera)
+
+        self._2D_scene = window.Scene(background=(0.2, 0.2, 0.2))
+        self._2D_scene.add(DirectionalLight())
+        self._2D_camera = OrthographicCamera()
+        self._2D_controller = PanZoomController(self._2D_camera)
+
+        self.show_manager = window.ShowManager(
+            scene=self._3D_scene,
+            camera=self._3D_camera,
+            controller=self._3D_controller,
+            qt_app=QApplication.instance(),
+            qt_parent=self,
+            window_type="qt",
+        )
+
+        self._3D_controller.register_events(self.show_manager.renderer)
+        self._2D_controller.register_events(self.show_manager.renderer)
+        self._2D_controller.enabled = False
+
+        # TODO: Remove long press event handler for Qt
+        # This is a temporary workaround for the long press issue in Qt
+        self.show_manager.renderer.remove_event_handler(
+            self.show_manager._set_key_long_press_event, "key_up", "key_down"
+        )
+
+        def _register_clicks(event):
+            """Handle selection clicks.
+
+            Parameters
+            ----------
+            event : Event
+                The click event.
+            """
+            if event.type == "pointer_down":
+                self._focused_actor = event.target
+            elif event.type == "pointer_up" and self._focused_actor != event.target:
+                self._focused_actor = None
+            elif event.type == "pointer_up" and self._focused_actor == event.target:
+                event = Event(
+                    type="on_selection", target=self._focused_actor, bubbles=False
+                )
+                self.show_manager.renderer.dispatch_event(event)
+                self._focused_actor = None
+            else:
+                self._focused_actor = None
+
+        self.show_manager.renderer.add_event_handler(
+            _register_clicks, "pointer_down", "pointer_up"
+        )
+
+        viz_window = self.show_manager.window
+        if not isinstance(viz_window, QWidget):
+            viz_window = QWidget.createWindowContainer(viz_window, self)
+
+        viz_window.setObjectName("interactionVizWindow")
+        layout.addWidget(viz_window, 1)
+
+    def add_visualization(self, visualization):
+        """Add a visualization to the center section."""
+        self._3D_scene.add(visualization)
 
 
 class RightSectionWidget(QFrame):
