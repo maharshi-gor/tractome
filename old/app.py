@@ -14,13 +14,6 @@ from fury.lib import (
     PerspectiveCamera,
     TrackballController,
 )
-from tractome.io import (
-    read_csv,
-    read_mesh,
-    read_nifti,
-    read_tractogram,
-    save_tractogram_from_streamlines,
-)
 from old.ui import (
     STYLE_SHEET,
     create_cluster_selection_buttons,
@@ -49,6 +42,13 @@ from tractome.compute import (
     filter_streamline_ids,
     mkbm_clustering,
     transform_roi_to_world_grid,
+)
+from tractome.io import (
+    read_csv,
+    read_mesh,
+    read_nifti,
+    read_tractogram,
+    save_tractogram_from_streamlines,
 )
 from tractome.mem import ClusterState, StateManager
 
