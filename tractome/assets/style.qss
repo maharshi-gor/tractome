@@ -25,3 +25,22 @@ QPushButton {
   border-radius: 5px;
   border: 2px solid white;
 }
+
+#startScreenContainer {
+  background-color: #333;
+  border-radius: 16px;
+  border: 2px solid white;
+}
+
+#interactionCenterSection {
+  background-color: #1f1f1f;
+  border: none;
+  border-radius: 10px;
+}
+
+#interactionLeftSection,
+#interactionRightSection {
+  background-color: #121212;
+  border: none;
+  border-radius: 10px;
+}

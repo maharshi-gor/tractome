@@ -5,8 +5,11 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QFileDialog,
+    QFrame,
     QLabel,
     QPushButton,
+    QHBoxLayout,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -63,7 +66,15 @@ class StartScreen(QWidget):
         self._on_uploading_done = on_uploading_done
 
         layout = QVBoxLayout(self)
-        layout.setAlignment(Qt.AlignCenter)
+        layout.setContentsMargins(40, 40, 40, 40)
+
+        self._container_box = QFrame()
+        self._container_box.setObjectName("startScreenContainer")
+        self._container_box.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+
+        inner_layout = QVBoxLayout(self._container_box)
+        inner_layout.setAlignment(Qt.AlignCenter)
+        inner_layout.setSpacing(20)
 
         self._logo_label = QLabel()
         logo_pixmap = QPixmap(str(IMAGES_PATH / "logo.png"))
@@ -74,14 +85,14 @@ class StartScreen(QWidget):
         self._logo_label.setPixmap(scaled_logo)
         self._logo_label.setAlignment(Qt.AlignCenter)
 
-        layout.addStretch()
-        layout.addWidget(self._logo_label)
+        inner_layout.addStretch()
+        inner_layout.addWidget(self._logo_label)
 
         self._title_label = QLabel("T R A C T O M E")
         self._title_label.setObjectName("titleLabel")
         self._title_label.setAlignment(Qt.AlignCenter)
 
-        layout.addWidget(self._title_label)
+        inner_layout.addWidget(self._title_label)
 
         self._upload_button = QPushButton("UPLOAD TRACTOGRAM")
         self._upload_button.setObjectName("startUploadButton")
@@ -89,9 +100,11 @@ class StartScreen(QWidget):
         self._upload_button.setCursor(Qt.PointingHandCursor)
         self._upload_button.clicked.connect(self._on_upload_clicked)
 
-        layout.addSpacing(40)
-        layout.addWidget(self._upload_button, alignment=Qt.AlignCenter)
-        layout.addStretch()
+        inner_layout.addSpacing(40)
+        inner_layout.addWidget(self._upload_button, alignment=Qt.AlignCenter)
+        inner_layout.addStretch()
+
+        layout.addWidget(self._container_box)
 
     def _on_upload_clicked(self):
         """Handle the upload button click event."""
@@ -107,11 +120,63 @@ class StartScreen(QWidget):
             self._on_uploading_done(file_path)
 
 
-# class InteractionScreen(QWidget):
-#     """Interaction screen of the app."""
+class InteractionScreen(QWidget):
+    """Interaction screen of the app."""
 
-#     def __init__(self):
-#         """Initialize the interaction screen."""
-#         super().__init__()
-#         main_layout = QHBoxLayout(self)
-#         main_layout.set
+    def __init__(self):
+        """Initialize the interaction screen."""
+        super().__init__()
+
+        main_layout = QHBoxLayout(self)
+        main_layout.setContentsMargins(10, 10, 10, 10)
+        main_layout.setSpacing(15)
+
+        self._left_section = LeftSectionWidget()
+        self._center_section = CenterSectionWidget()
+        self._right_section = RightSectionWidget()
+
+        main_layout.addWidget(self._left_section, 1)
+        main_layout.addWidget(self._center_section, 3)
+        main_layout.addWidget(self._right_section, 1)
+
+
+class LeftSectionWidget(QFrame):
+    """Left section container for interaction controls."""
+
+    def __init__(self):
+        super().__init__()
+        self.setObjectName("interactionLeftSection")
+        self.setFrameShape(QFrame.StyledPanel)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(10)
+        layout.addStretch()
+
+
+class CenterSectionWidget(QFrame):
+    """Center section container for visualization/content."""
+
+    def __init__(self):
+        super().__init__()
+        self.setObjectName("interactionCenterSection")
+        self.setFrameShape(QFrame.StyledPanel)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(10)
+        layout.addStretch()
+
+
+class RightSectionWidget(QFrame):
+    """Right section container for add-ons and track views."""
+
+    def __init__(self):
+        super().__init__()
+        self.setObjectName("interactionRightSection")
+        self.setFrameShape(QFrame.StyledPanel)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(10)
+        layout.addStretch()

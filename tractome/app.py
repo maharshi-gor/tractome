@@ -5,7 +5,7 @@ from PySide6.QtWidgets import QApplication, QMainWindow, QStackedWidget
 
 from tractome.io import get_file_extension
 from tractome.mem import InputManager
-from tractome.ui import StartScreen, load_style_sheet
+from tractome.ui import InteractionScreen, StartScreen, load_style_sheet
 
 app = QApplication.instance() or QApplication([])
 
@@ -84,7 +84,7 @@ class Tractome(QMainWindow):
         """Handle the completion of the start screen."""
         self._file_uploaded(file_path)
         logging.info("File uploaded, switching to main screen.")
-        # self._stack.setCurrentIndex(1)
+        self._stack.setCurrentIndex(1)
 
     def _file_uploaded(self, file_path):
         """Handle the file uploaded event.
@@ -111,8 +111,11 @@ class Tractome(QMainWindow):
         self.setCentralWidget(self._stack)
 
         if not self._input_manager.has_input():
-            self._start_screen = StartScreen(on_uploading_done=self._file_uploaded)
+            self._start_screen = StartScreen(on_uploading_done=self._completed_start_screen)
             self._stack.addWidget(self._start_screen)
+
+        self._interaction_screen = InteractionScreen()
+        self._stack.addWidget(self._interaction_screen)
 
 
 if __name__ == "__main__":
