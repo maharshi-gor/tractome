@@ -151,7 +151,13 @@ class InteractionScreen(QWidget):
         main_layout.addWidget(self._right_section, 1)
 
     def add_visualization(self, visualization):
-        """Add a visualization to the center section."""
+        """Add a visualization to the center section.
+
+        Parameters
+        ----------
+        visualization : list
+            The visualization to add.
+        """
         self._center_section.add_visualization(visualization)
 
 
@@ -197,7 +203,7 @@ class CenterSectionWidget(QFrame):
             camera=self._3D_camera,
             controller=self._3D_controller,
             qt_app=QApplication.instance(),
-            qt_parent=self,
+            # qt_parent=self,
             window_type="qt",
         )
 
@@ -243,9 +249,15 @@ class CenterSectionWidget(QFrame):
         viz_window.setObjectName("interactionVizWindow")
         layout.addWidget(viz_window, 1)
 
-    def add_visualization(self, visualization):
-        """Add a visualization to the center section."""
-        self._3D_scene.add(visualization)
+    def add_visualization(self, visualizations):
+        """Add visualizations to the center section.
+
+        Parameters
+        ----------
+        visualizations : list
+            The visualizations to add.
+        """
+        self._3D_scene.add(*visualizations)
 
 
 class RightSectionWidget(QFrame):

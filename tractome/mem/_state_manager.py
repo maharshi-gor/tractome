@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import Optional
 
 import numpy as np
 
@@ -10,6 +11,7 @@ class ClusterState:
     nb_clusters: int
     streamline_ids: np.ndarray
     max_clusters: int
+    tractogram_states: Optional[dict] = None
 
 
 class StateManager:

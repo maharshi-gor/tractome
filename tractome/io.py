@@ -58,10 +58,12 @@ def read_tractogram(file_path, reference=None):
     ----------
     file_path : str
         The path to the tractogram file.
+    reference : str or Nifti1Image, optional
+        The reference image for the tractogram.
 
     Returns
     -------
-    tractogram : StatefulTractogram
+    StatefulTractogram
         The loaded tractogram.
     """
 

@@ -253,52 +253,37 @@ def toggle_streamtube_selection(event):
     _toggle_streamtube_selection(st)
 
 
-def create_streamtube(clusters, streamlines):
-    """Create streamtubes with radius scaled by number of streamlines in each cluster.
+def create_streamtube(line, color, radius):
+    """Create a streamtube from a line.
 
     Parameters
     ----------
-    clusters : dict
-        Dictionary mapping representative streamline indices to lists of
-        streamline indices.
-    streamlines : list
-        List of streamlines.
+    line : ndarray
+        The input line.
+    color : tuple
+        The color of the streamtube.
+    radius : float
+        The radius of the streamtube.
 
     Returns
     -------
-    dict
-        Dictionary of streamtube actors with scaled radii.
+    Streamtube
+        The created streamtube.
     """
-    if not clusters:
-        return {}
 
-    cluster_sizes = [len(lines) for lines in clusters.values()]
-
-    min_size = min(cluster_sizes)
-    max_size = max(cluster_sizes)
-
-    size_range = max_size - min_size if max_size > min_size else 1
-
-    streamtubes = {}
-    for rep, lines in clusters.items():
-        num_streamlines = len(lines)
-        scaled_radius = ((num_streamlines - min_size) / size_range) * 2.0
-
-        radius = max(scaled_radius, 0.5)
-
-        streamtube = actor.streamtube(
-            [streamlines[rep]], colors=np.random.rand(3), radius=radius, backend="cpu"
-        )
-        streamtube.rep = rep
-        streamtube.material.opacity = 0.5
-        streamtube.material.alpha_mode = "auto"
-        streamtube.material.depth_write = True
-        streamtube.render_order = 1
-        streamtube.material.uniform_buffer.update_full()
-        streamtube.add_event_handler(toggle_streamtube_selection, "on_selection")
-        streamtubes[rep] = streamtube
-
-    return streamtubes
+    streamtube = actor.streamtube(
+        [line],
+        colors=color,
+        radius=radius,
+        backend="cpu",
+    )
+    streamtube.material.opacity = 0.5
+    streamtube.material.alpha_mode = "auto"
+    streamtube.material.depth_write = True
+    streamtube.render_order = 1
+    streamtube.material.uniform_buffer.update_full()
+    streamtube.add_event_handler(toggle_streamtube_selection, "on_selection")
+    return streamtube
 
 
 def create_image_slicer(volume, *, affine=None, mode="auto", depth_write=True):

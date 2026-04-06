@@ -268,6 +268,7 @@ class InputManager:
         self._loaded_inputs["parcel"] = (points, colors, path, idx)
         return self._loaded_inputs["parcel"]
 
+    @property
     def has_input(self):
         """Check if any input is available.
 
@@ -278,12 +279,67 @@ class InputManager:
             otherwise.
         """
         return (
-            len(self._provided_inputs["tractogram"]) > 0
-            or len(self._provided_inputs["t1"]) > 0
-            or len(self._provided_inputs["mesh"]) > 0
-            or len(self._provided_inputs["roi"]) > 0
-            or len(self._provided_inputs["parcel"]) > 0
+            self.has_tractogram
+            or self.has_t1
+            or self.has_mesh
+            or self.has_roi
+            or self.has_parcel
         )
+
+    @property
+    def has_t1(self):
+        """Check if a T1 image is available.
+
+        Returns
+        -------
+        bool
+            True if a T1 image is available, False otherwise.
+        """
+        return len(self._provided_inputs["t1"]) > 0
+
+    @property
+    def has_tractogram(self):
+        """Check if a tractogram is available.
+
+        Returns
+        -------
+        bool
+            True if a tractogram is available, False otherwise.
+        """
+        return len(self._provided_inputs["tractogram"]) > 0
+
+    @property
+    def has_mesh(self):
+        """Check if a mesh is available.
+
+        Returns
+        -------
+        bool
+            True if a mesh is available, False otherwise.
+        """
+        return len(self._provided_inputs["mesh"]) > 0
+
+    @property
+    def has_roi(self):
+        """Check if an ROI is available.
+
+        Returns
+        -------
+        bool
+            True if an ROI is available, False otherwise.
+        """
+        return len(self._provided_inputs["roi"]) > 0
+
+    @property
+    def has_parcel(self):
+        """Check if a parcel is available.
+
+        Returns
+        -------
+        bool
+            True if a parcel is available, False otherwise.
+        """
+        return len(self._provided_inputs["parcel"]) > 0
 
 
 input_manager = InputManager()

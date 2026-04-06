@@ -84,8 +84,10 @@ class Tractome(QMainWindow):
         file_path : str
             Path of the uploaded file.
         """
-        self._file_uploaded(file_path)
+        if file_path is not None:
+            self._file_uploaded(file_path)
         self._stack.setCurrentIndex(1)
+        self._visualize_inputs()
 
     def _file_uploaded(self, file_path):
         """Handle the file uploaded event.
@@ -111,21 +113,23 @@ class Tractome(QMainWindow):
         self._stack = QStackedWidget()
         self.setCentralWidget(self._stack)
 
-        if not input_manager.has_input():
-            self._start_screen = StartScreen(
-                on_uploading_done=self._completed_start_screen
-            )
-            self._stack.addWidget(self._start_screen)
+        self._start_screen = StartScreen(on_uploading_done=self._completed_start_screen)
+        self._stack.addWidget(self._start_screen)
 
         self._interaction_screen = InteractionScreen()
         self._stack.addWidget(self._interaction_screen)
-        self._visualize_inputs()
+
+        if input_manager.has_input:
+            self._completed_start_screen(None)
 
     def _visualize_inputs(self):
         """Visualize the inputs in the interaction screen."""
         t1_visualization = visualization_manager.visualize_t1()
         if t1_visualization is not None:
             self._interaction_screen.add_visualization(t1_visualization)
+        tractogram_visualization = visualization_manager.visualize_tractogram()
+        if tractogram_visualization is not None:
+            self._interaction_screen.add_visualization(tractogram_visualization)
 
     def start(self):
         """Show the main window and start the FURY/Qt loop."""
@@ -134,7 +138,5 @@ class Tractome(QMainWindow):
 
 
 if __name__ == "__main__":
-    tractome = Tractome(
-        t1="~/devel/grg_data/demo_data_tractome/neuvircarv_SLS_bradipho/sub-16_epo-00_ref-ACPC_brain_t1.nii"
-    )
+    tractome = Tractome(tractogram="computed.trx")
     tractome.start()
