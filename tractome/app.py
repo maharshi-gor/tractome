@@ -111,7 +111,9 @@ class Tractome(QMainWindow):
         self.setCentralWidget(self._stack)
 
         if not self._input_manager.has_input():
-            self._start_screen = StartScreen(on_uploading_done=self._completed_start_screen)
+            self._start_screen = StartScreen(
+                on_uploading_done=self._completed_start_screen
+            )
             self._stack.addWidget(self._start_screen)
 
         self._interaction_screen = InteractionScreen()
