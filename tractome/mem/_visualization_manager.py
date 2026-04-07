@@ -57,7 +57,7 @@ class VisualizationManager:
         self._visualizations["t1"] = [create_image_slicer(img, affine=affine)]
         return self._visualizations["t1"]
 
-    def visualize_tractogram(self, *, nb_clusters=150):
+    def visualize_tractogram(self, *, nb_clusters=100):
         """Visualize the tractogram.
 
         Parameters

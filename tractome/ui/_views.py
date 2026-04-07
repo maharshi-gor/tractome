@@ -97,7 +97,7 @@ class InteractionScreen(QWidget):
         self._right_section = RightSectionWidget()
 
         main_layout.addWidget(self._left_section, 1)
-        main_layout.addWidget(self._center_section, 4)
+        main_layout.addWidget(self._center_section, 3)
         main_layout.addWidget(self._right_section, 1)
 
     def add_visualization(self, visualizations, visualization_type="unknown"):

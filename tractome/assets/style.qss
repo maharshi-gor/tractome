@@ -63,7 +63,8 @@ QPushButton {
 
 #clusterCountInput {
 	color: #ffffff;
-	background-color: #575757;
+	background-color: #1e1e1e;
+	border: 2px solid #747474;
     font-size: 12pt;
     border-radius: 8px;
     padding: 2px;
@@ -82,7 +83,7 @@ QPushButton {
 	margin: 2px 2px;
 	border-radius: 8px;
     background-color: #575757;
-    border: 2pt solid #747474;
+    border: 2px solid #747474;
     color: #ffffff;
     padding: 4px;
 }
@@ -108,4 +109,14 @@ QPushButton {
 #clusterStepButton {
     font-size: 4pt;
     border-radius: 8px;
+}
+
+#displayInfoWidget {
+	background: #333333;
+}
+
+#displayInfoWidget QLabel {
+	background: #333333;
+	color: #ffffff;
+	font-size: 12pt;
 }
