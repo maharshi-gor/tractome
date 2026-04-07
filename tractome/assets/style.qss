@@ -2,12 +2,14 @@ QMainWindow {
   background-color: #121212
 }
 
+#clusterSettingsButton,
 QPushButton {
-  color: white;
-  font-size: 14pt;
-  background: #333;
-  border-radius: 5px;
-  padding: 5px;
+  	font-size: 12pt;
+    border-radius: 8px;
+	border: 2px solid #747474; 
+	color: #ffffff;
+    padding: 4px;
+	background-color: #575757;
 }
 
 /* Specific Styles */
@@ -43,4 +45,67 @@ QPushButton {
   background-color: #121212;
   border: none;
   border-radius: 10px;
+}
+
+#clustersWidget {
+    background-color: #1e1e1e;
+    border: 2px solid #2ecc71;
+    border-radius: 12px;
+}
+
+#clustersTitle {
+	color: #ffffff;
+	font-weight: bold;
+    font-size: 14pt;
+    letter-spacing: 1px;
+    padding-bottom: 2px;
+}
+
+#clusterCountInput {
+	color: #ffffff;
+	background-color: #575757;
+    font-size: 12pt;
+    border-radius: 8px;
+    padding: 2px;
+	qproperty-alignment: 'AlignCenter';
+}
+
+#clusterSettingsButton::menu-indicator {
+    image: url(icons/arrow_down.svg);
+    subcontrol-position: right center;
+    width: 12px;
+    height: 12px;
+    right: 10px;
+}
+
+#clusterSettingsMenu {
+	margin: 2px 2px;
+	border-radius: 8px;
+    background-color: #575757;
+    border: 2pt solid #747474;
+    color: #ffffff;
+    padding: 4px;
+}
+
+#clusterSettingsMenu::item {
+    background-color: transparent;
+    color: #ffffff;
+    border-radius: 6px;
+    padding: 6px 10px;
+}
+
+#clusterSettingsMenu::item:selected {
+    background-color: #2ecc71;
+    color: #121212;
+}
+
+#clusterSettingsMenu::separator {
+    height: 1px;
+    background: #747474;
+    margin: 4px 8px;
+}
+
+#clusterStepButton {
+    font-size: 4pt;
+    border-radius: 8px;
 }
