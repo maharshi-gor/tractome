@@ -126,10 +126,14 @@ class Tractome(QMainWindow):
         """Visualize the inputs in the interaction screen."""
         t1_visualization = visualization_manager.visualize_t1()
         if t1_visualization is not None:
-            self._interaction_screen.add_visualization(t1_visualization)
+            self._interaction_screen.add_visualization(
+                t1_visualization, visualization_type="t1"
+            )
         tractogram_visualization = visualization_manager.visualize_tractogram()
         if tractogram_visualization is not None:
-            self._interaction_screen.add_visualization(tractogram_visualization)
+            self._interaction_screen.add_visualization(
+                tractogram_visualization, visualization_type="tractogram"
+            )
 
     def start(self):
         """Show the main window and start the FURY/Qt loop."""

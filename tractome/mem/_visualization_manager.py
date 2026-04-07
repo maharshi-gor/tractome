@@ -57,7 +57,7 @@ class VisualizationManager:
         self._visualizations["t1"] = [create_image_slicer(img, affine=affine)]
         return self._visualizations["t1"]
 
-    def visualize_tractogram(self, *, nb_clusters=100):
+    def visualize_tractogram(self, *, nb_clusters=150):
         """Visualize the tractogram.
 
         Parameters
@@ -98,14 +98,17 @@ class VisualizationManager:
 
         self._apply_tractogram_states()
 
+        return self._visualizations["tractogram"]
+
+    def _get_actors(self):
+        """Get the actors for the visualization."""
         actors = []
         for state_data in state_manager.get_latest_state().tractogram_states.values():
             if state_data["expanded"] is not True:
                 actors.append(state_data["rep_actor"])
             else:
                 actors.append(state_data["lines_actor"])
-        self._visualizations["tractogram"] = actors
-        return self._visualizations["tractogram"]
+        return actors
 
     def _apply_tractogram_states(self):
         """Apply the tractogram states to the visualization."""
@@ -113,19 +116,38 @@ class VisualizationManager:
         latest_state = state_manager.get_latest_state()
         if latest_state.tractogram_states is not None:
             for cluster_id, state_data in latest_state.tractogram_states.items():
-                if state_data["expanded"] is not True:
-                    state_data["rep_actor"] = create_streamtube(
-                        sft.streamlines[cluster_id],
-                        state_data["color"],
-                        state_data["radius"],
-                    )
-                else:
-                    state_data["lines_actor"] = create_streamlines(
+                if not state_data["expanded"]:
+                    if state_data["rep_actor"] is None:
+                        state_data["rep_actor"] = self._create_cluster_rep_actor(
+                            cluster_id,
+                            sft.streamlines[cluster_id],
+                            state_data["color"],
+                            state_data["radius"],
+                        )
+                    if state_data["selected"]:
+                        state_data["rep_actor"].material.opacity = 1.0
+                    else:
+                        state_data["rep_actor"].material.opacity = 0.5
+                    if state_data["visible"]:
+                        state_data["rep_actor"].visible = True
+                    else:
+                        state_data["rep_actor"].visible = False
+                    state_data["lines_actor"] = None
+                elif state_data["expanded"] and state_data["lines_actor"] is None:
+                    state_data["lines_actor"] = self._create_cluster_lines_actor(
+                        cluster_id,
                         sft.streamlines[state_data["streamline_ids"]],
                         state_data["color"],
                     )
+                    state_data["rep_actor"] = None
+                    if state_data["visible"]:
+                        state_data["lines_actor"].visible = True
+                    else:
+                        state_data["lines_actor"].visible = False
         else:
             self._perform_clustering(sft, latest_state)
+
+        self._visualizations["tractogram"] = self._get_actors()
 
     def _perform_clustering(self, sft, state):
         """Perform clustering on the tractogram.
@@ -147,25 +169,93 @@ class VisualizationManager:
         min_size = min(len(streamline_ids) for streamline_ids in clusters.values())
         max_size = max(len(streamline_ids) for streamline_ids in clusters.values())
         size_range = max_size - min_size if max_size > min_size else 1
-        state.tractogram_states = {}
         for cluster_id, streamline_ids in clusters.items():
             num_streamlines = len(streamline_ids)
             scaled_radius = ((num_streamlines - min_size) / size_range) * 2.0
             radius = max(scaled_radius, 1)
-            state.tractogram_states[cluster_id] = {
-                "streamline_ids": streamline_ids,
-                "color": next(colormap),
-                "selected": False,
-                "expanded": False,
-                "rep_actor": None,
-                "lines_actor": None,
-                "radius": radius,
-            }
-            state.tractogram_states[cluster_id]["rep_actor"] = create_streamtube(
-                sft.streamlines[cluster_id],
-                state.tractogram_states[cluster_id]["color"],
-                state.tractogram_states[cluster_id]["radius"],
+            cluster_entry = state_manager.create_cluster_entry(
+                cluster_id, streamline_ids, next(colormap), radius
             )
+            cluster_entry["rep_actor"] = self._create_cluster_rep_actor(
+                cluster_id,
+                sft.streamlines[cluster_id],
+                cluster_entry["color"],
+                cluster_entry["radius"],
+            )
+
+    def _create_cluster_rep_actor(self, cluster_id, line, color, radius):
+        """Create a representative actor for a cluster."""
+        rep_actor = create_streamtube(line, color, radius)
+        rep_actor.rep = cluster_id
+        rep_actor.add_event_handler(self._toggle_cluster_selection, "on_selection")
+        return rep_actor
+
+    def _create_cluster_lines_actor(self, cluster_id, streamlines, color):
+        """Create a lines actor for a cluster."""
+        lines_actor = create_streamlines(streamlines, color)
+        lines_actor.rep = cluster_id
+        return lines_actor
+
+    def _toggle_cluster_selection(self, event):
+        """Toggle the selection state of a cluster.
+
+        Parameters
+        ----------
+        event : Event
+            The click event.
+        """
+        cluster = event.target
+        state_manager.toggle_cluster_selection(cluster.rep)
+
+    def expand_clusters(self):
+        """Expand selected clusters."""
+        state_manager.expand_clusters()
+        self._apply_tractogram_states()
+
+    def collapse_clusters(self):
+        """Collapse selected clusters."""
+        state_manager.collapse_clusters()
+        self._apply_tractogram_states()
+
+    def show_clusters(self):
+        """Show selected clusters."""
+        state_manager.show_clusters()
+        self._apply_tractogram_states()
+
+    def hide_clusters(self):
+        """Hide selected clusters."""
+        state_manager.hide_clusters()
+        self._apply_tractogram_states()
+
+    def select_all_clusters(self):
+        """Select all clusters."""
+        state_manager.select_all_clusters()
+        self._apply_tractogram_states()
+
+    def select_none_clusters(self):
+        """Select none clusters."""
+        state_manager.select_none_clusters()
+        self._apply_tractogram_states()
+
+    def swap_clusters(self):
+        """Swap selected clusters."""
+        state_manager.swap_clusters()
+        self._apply_tractogram_states()
+
+    # def delete_clusters(self):
+    #     """Delete selected clusters."""
+    #     state_manager.delete_clusters()
+    #     self._apply_tractogram_states()
+
+    @property
+    def tractogram_visualizations(self):
+        """Get the tractogram visualizations."""
+        return self._visualizations["tractogram"]
+
+    @property
+    def t1_visualizations(self):
+        """Get the T1 visualizations."""
+        return self._visualizations["t1"]
 
 
 visualization_manager = VisualizationManager()
