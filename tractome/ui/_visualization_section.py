@@ -254,11 +254,14 @@ class CenterSectionWidget(QFrame):
         elif event.key == "i":
             visualization_manager.swap_clusters()
         elif event.key == "d":
-            # visualization_manager.delete_clusters()
-            pass
-        elif event.key == "r":
-            # visualization_manager.reset_view()
-            pass
+            self.remove_visualization(
+                visualization_manager.tractogram_visualizations,
+                visualization_type="tractogram",
+            )
+            visualization_manager.delete_clusters()
+            self.add_visualization(
+                visualization_manager.tractogram_visualizations,
+                visualization_type="tractogram",
+            )
         elif event.key == "x":
-            # visualization_manager.toggle_suggestion()
-            pass
+            self._keystroke_card.setVisible(not self._keystroke_card.isVisible())

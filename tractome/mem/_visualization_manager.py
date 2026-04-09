@@ -75,7 +75,7 @@ class VisualizationManager:
             return None
 
         sft, _, _, _ = input_manager.get_current_tractogram()
-        is_embeddings_present = sft.data_per_streamline.get("dismatrix") is not None
+        is_embeddings_present = "dismatrix" in sft.data_per_streamline
         if not is_embeddings_present:
             n_jobs = max(1, (os.cpu_count() or 1) - 2)
             data_dissimilarity = compute_dissimilarity(
@@ -242,10 +242,19 @@ class VisualizationManager:
         state_manager.swap_clusters()
         self._apply_tractogram_states()
 
-    # def delete_clusters(self):
-    #     """Delete selected clusters."""
-    #     state_manager.delete_clusters()
-    #     self._apply_tractogram_states()
+    def delete_clusters(self):
+        """Delete selected clusters."""
+        latest_state = state_manager.get_latest_state()
+        streamline_ids = []
+        for state_data in latest_state.tractogram_states.values():
+            if state_data["selected"]:
+                streamline_ids.extend(state_data["streamline_ids"])
+        streamline_ids = np.unique(streamline_ids)
+        nb_clusters = min(latest_state.nb_clusters, len(streamline_ids))
+        state_manager.add_state(
+            ClusterState(nb_clusters, streamline_ids, latest_state.max_clusters)
+        )
+        self._apply_tractogram_states()
 
     @property
     def tractogram_visualizations(self):

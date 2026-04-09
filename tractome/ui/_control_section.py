@@ -45,6 +45,7 @@ class ClustersWidget(QFrame):
         self.count_input.setFixedHeight(std_h)
         self.count_input.setMinimumWidth(56)
         self.count_input.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Fixed)
+        self.count_input.returnPressed.connect(self._apply_clusters)
         self.grid.addWidget(self.count_input, 0, 0)
 
         step_layout = QVBoxLayout()
@@ -68,6 +69,7 @@ class ClustersWidget(QFrame):
         self.btn_apply.setFixedHeight(std_h)
         self.btn_apply.setMinimumWidth(50)
         self.btn_apply.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.btn_apply.clicked.connect(self._apply_clusters)
         self.grid.addWidget(self.btn_apply, 0, 2)
 
         self.btn_prev = QPushButton("Prev State")
@@ -80,6 +82,8 @@ class ClustersWidget(QFrame):
         self.btn_next.setMinimumWidth(90)
         self.btn_prev.setFixedHeight(std_h)
         self.btn_next.setFixedHeight(std_h)
+        self.btn_prev.clicked.connect(self._on_prev_state)
+        self.btn_next.clicked.connect(self._on_next_state)
 
         self.grid.addWidget(self.btn_prev, 1, 0, 1, 2)
         self.grid.addWidget(self.btn_next, 1, 2)
@@ -145,6 +149,16 @@ class ClustersWidget(QFrame):
         """Keep settings dropdown width aligned to its button width."""
         self.settings_menu.setMinimumWidth(self.btn_settings.width())
 
+    def _apply_clusters(self, *, only_cluster=True):
+        """Apply the clusters."""
+        value = self.count_input.value()
+        if 1 <= value <= self.count_input.maximum():
+            self._remove_tractogram_visualizations()
+            if only_cluster:
+                state_manager.get_latest_state().tractogram_states = None
+            visualization_manager.visualize_tractogram(nb_clusters=value)
+            self._add_tractogram_visualizations()
+
     def _remove_tractogram_visualizations(self):
         """Remove the tractogram visualizations."""
         parent = self.parent()
@@ -161,6 +175,22 @@ class ClustersWidget(QFrame):
             visualization_type="tractogram",
         )
 
+    def _on_prev_state(self):
+        """Handle the 'Previous State' button click."""
+        if state_manager.can_move_back():
+            latest_state = state_manager.move_back()
+            self.count_input.setMaximum(latest_state.max_clusters)
+            self.count_input.setValue(latest_state.nb_clusters)
+            self._apply_clusters(only_cluster=False)
+
+    def _on_next_state(self):
+        """Handle the 'Next State' button click."""
+        if state_manager.can_move_next():
+            latest_state = state_manager.move_next()
+            self.count_input.setMaximum(latest_state.max_clusters)
+            self.count_input.setValue(latest_state.nb_clusters)
+            self._apply_clusters(only_cluster=False)
+
     def _on_cluster_menu_action(self, action_name):
         """Handle cluster settings menu actions."""
         if action_name == "All":
@@ -174,8 +204,9 @@ class ClustersWidget(QFrame):
         elif action_name == "Hide":
             visualization_manager.hide_clusters()
         elif action_name == "Delete":
-            # state_manager.delete_clusters()
-            pass
+            self._remove_tractogram_visualizations()
+            visualization_manager.delete_clusters()
+            self._add_tractogram_visualizations()
         elif action_name == "Expand":
             self._remove_tractogram_visualizations()
             visualization_manager.expand_clusters()
