@@ -17,7 +17,7 @@ from fury.lib import (
     PerspectiveCamera,
     TrackballController,
 )
-from tractome.mem import state_manager
+from tractome.mem import state_manager, visualization_manager
 
 
 class CenterSectionWidget(QFrame):
@@ -86,6 +86,10 @@ class CenterSectionWidget(QFrame):
             _register_clicks, "pointer_down", "pointer_up"
         )
 
+        self.show_manager.renderer.add_event_handler(
+            self.handle_key_strokes, "key_down"
+        )
+
         viz_window = self.show_manager.window
         if not isinstance(viz_window, QWidget):
             viz_window = QWidget.createWindowContainer(viz_window, self)
@@ -94,6 +98,7 @@ class CenterSectionWidget(QFrame):
         layout.addWidget(viz_window, 0, 0)
 
         self._build_display_info_overlay(layout)
+        self._build_keystroke_card(layout)
 
     def _build_display_info_overlay(self, parent_layout):
         """Create display info overlay inside the visualization area."""
@@ -127,6 +132,46 @@ class CenterSectionWidget(QFrame):
         )
         self._display_info_widget.raise_()
 
+    def _build_keystroke_card(self, parent_layout):
+        """Build the keystroke card."""
+        self._keystroke_card = QFrame(self)
+        self._keystroke_card.setObjectName("keystrokeCard")
+        self._keystroke_card.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+
+        info_layout = QVBoxLayout(self._keystroke_card)
+        info_layout.setContentsMargins(10, 10, 10, 10)
+        info_layout.setSpacing(4)
+
+        title = QLabel("Key Strokes", self._keystroke_card)
+        title.setObjectName("keystrokeTitle")
+        info_layout.addWidget(title)
+
+        shortcut_lines = [
+            "a: Select All",
+            "n: Select None",
+            "i: Swap Selection",
+            "d: Delete Selection",
+            "e: Expand Selection",
+            "c: Collapse Selection",
+            "s: Show Selection",
+            "h: Hide Selection",
+            "x: Toggle this message",
+        ]
+        self._keystroke_content = QLabel(
+            "\n".join(shortcut_lines), self._keystroke_card
+        )
+        self._keystroke_content.setObjectName("keystrokeContent")
+        self._keystroke_content.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+        info_layout.addWidget(self._keystroke_content)
+
+        parent_layout.addWidget(
+            self._keystroke_card,
+            0,
+            0,
+            alignment=Qt.AlignBottom | Qt.AlignLeft,
+        )
+        self._keystroke_card.raise_()
+
     def add_visualization(self, visualizations, visualization_type="unknown"):
         """Add visualizations to the center section.
 
@@ -140,8 +185,9 @@ class CenterSectionWidget(QFrame):
         self._3D_scene.add(*visualizations)
         if visualization_type == "tractogram":
             self._update_display_info()
+            self._keystroke_card.setVisible(True)
 
-    def remove_visualization(self, visualizations):
+    def remove_visualization(self, visualizations, *, visualization_type="unknown"):
         """Remove visualizations from the center section.
 
         Parameters
@@ -150,7 +196,9 @@ class CenterSectionWidget(QFrame):
             The visualizations to remove.
         """
         self._3D_scene.remove(*visualizations)
-        self._update_display_info()
+        if visualization_type == "tractogram":
+            self._update_display_info()
+            self._keystroke_card.setVisible(False)
 
     def _update_display_info(self):
         """Update display info overlay for latest added visualization."""
@@ -166,3 +214,51 @@ class CenterSectionWidget(QFrame):
         self._display_cluster_count.setText(f"# of clusters: {cluster_count}")
         self._display_roi_count.setText(f"# of ROI: {roi_count}")
         self._display_fibers_count.setText(f"# of fibers: {fibers_count}")
+
+    def handle_key_strokes(self, event):
+        """Handle key strokes.
+
+        Parameters
+        ----------
+        event : Event
+            The key stroke event.
+        """
+        if event.key == "e":
+            self.remove_visualization(
+                visualization_manager.tractogram_visualizations,
+                visualization_type="tractogram",
+            )
+            visualization_manager.expand_clusters()
+            self.add_visualization(
+                visualization_manager.tractogram_visualizations,
+                visualization_type="tractogram",
+            )
+        elif event.key == "c":
+            self.remove_visualization(
+                visualization_manager.tractogram_visualizations,
+                visualization_type="tractogram",
+            )
+            visualization_manager.collapse_clusters()
+            self.add_visualization(
+                visualization_manager.tractogram_visualizations,
+                visualization_type="tractogram",
+            )
+        elif event.key == "h":
+            visualization_manager.hide_clusters()
+        elif event.key == "s":
+            visualization_manager.show_clusters()
+        elif event.key == "a":
+            visualization_manager.select_all_clusters()
+        elif event.key == "n":
+            visualization_manager.select_none_clusters()
+        elif event.key == "i":
+            visualization_manager.swap_clusters()
+        elif event.key == "d":
+            # visualization_manager.delete_clusters()
+            pass
+        elif event.key == "r":
+            # visualization_manager.reset_view()
+            pass
+        elif event.key == "x":
+            # visualization_manager.toggle_suggestion()
+            pass

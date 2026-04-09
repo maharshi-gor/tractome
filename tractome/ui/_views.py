@@ -118,15 +118,13 @@ class InteractionScreen(QWidget):
         )
         self._center_section.show_manager.render()
 
-    def remove_visualization(self, visualizations, visualization_type="unknown"):
+    def remove_visualization(self, visualizations, *, visualization_type="unknown"):
         """Remove a visualization from the center section.
 
         Parameters
         ----------
         visualizations : list
             Visualizations to remove.
-        visualization_type : str, optional
-            Type/category of the visualization payload.
         """
         self._center_section.remove_visualization(
             visualizations, visualization_type=visualization_type

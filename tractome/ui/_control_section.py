@@ -143,14 +143,16 @@ class ClustersWidget(QFrame):
         """Remove the tractogram visualizations."""
         parent = self.parent()
         parent.parent().remove_visualization(
-            visualization_manager.tractogram_visualizations
+            visualization_manager.tractogram_visualizations,
+            visualization_type="tractogram",
         )
 
     def _add_tractogram_visualizations(self):
         """Add the tractogram visualizations."""
         parent = self.parent()
         parent.parent().add_visualization(
-            visualization_manager.tractogram_visualizations, "tractogram"
+            visualization_manager.tractogram_visualizations,
+            visualization_type="tractogram",
         )
 
     def _on_cluster_menu_action(self, action_name):

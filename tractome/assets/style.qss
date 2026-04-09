@@ -120,3 +120,22 @@ QPushButton {
 	color: #ffffff;
 	font-size: 12pt;
 }
+
+#keystrokeCard {
+    background-color: rgba(80, 80, 80, 180);
+    border: none;
+    border-radius: 0px;
+}
+
+#keystrokeTitle {
+    background: transparent;
+    color: #ffffff;
+    font-size: 12pt;
+    font-weight: bold;
+}
+
+#keystrokeContent {
+    background: transparent;
+    color: #ffffff;
+    font-size: 11pt;
+}
