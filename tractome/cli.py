@@ -2,7 +2,7 @@ import click
 from dipy.tracking.distances import bundles_distances_mam, bundles_distances_mdf
 import numpy as np
 
-from old.app import Tractome
+from tractome.app import Tractome
 from tractome.compute import compute_dissimilarity
 from tractome.io import read_tractogram, save_tractogram
 
@@ -51,7 +51,8 @@ def tractome(
     parcel : str, optional
         Path to a parcel CSV file
     """
-    Tractome(tractogram, mesh, mesh_texture, t1, roi, parcel)
+    tractome = Tractome(tractogram, mesh, mesh_texture, t1, roi, parcel)
+    tractome.start()
 
 
 @click.command(name="compute_dissimilarity_matrix")

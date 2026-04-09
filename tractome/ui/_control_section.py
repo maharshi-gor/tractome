@@ -67,6 +67,7 @@ class ClustersWidget(QFrame):
         self.btn_apply.setObjectName("clusterApplyButton")
         self.btn_apply.setFixedHeight(std_h)
         self.btn_apply.setMinimumWidth(50)
+        self.btn_apply.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.grid.addWidget(self.btn_apply, 0, 2)
 
         self.btn_prev = QPushButton("Prev State")
@@ -94,8 +95,9 @@ class ClustersWidget(QFrame):
             self.btn_settings.setIcon(QIcon(str(settings_icon_path)))
             self.btn_settings.setIconSize(QSize(24, 24))
 
-        settings_menu = QMenu(self.btn_settings)
-        settings_menu.setObjectName("clusterSettingsMenu")
+        self.settings_menu = QMenu(self.btn_settings)
+        self.settings_menu.setObjectName("clusterSettingsMenu")
+        self.settings_menu.aboutToShow.connect(self._sync_settings_menu_width)
 
         for action_label in (
             "All",
@@ -115,12 +117,12 @@ class ClustersWidget(QFrame):
                 )
             )
 
-            settings_menu.addAction(action)
+            self.settings_menu.addAction(action)
 
-        self.btn_settings.setMenu(settings_menu)
-        self.grid.addWidget(self.btn_settings, 2, 0, 1, 2)
+        self.btn_settings.setMenu(self.settings_menu)
+        self.grid.addWidget(self.btn_settings, 2, 0, 1, 3)
 
-        self.grid.setColumnStretch(0, 0)
+        self.grid.setColumnStretch(0, 1)
         self.grid.setColumnStretch(1, 0)
         self.grid.setColumnStretch(2, 1)
 
@@ -138,6 +140,10 @@ class ClustersWidget(QFrame):
             self.btn_down,
         ]:
             btn.setCursor(Qt.PointingHandCursor)
+
+    def _sync_settings_menu_width(self):
+        """Keep settings dropdown width aligned to its button width."""
+        self.settings_menu.setMinimumWidth(self.btn_settings.width())
 
     def _remove_tractogram_visualizations(self):
         """Remove the tractogram visualizations."""
