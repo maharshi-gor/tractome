@@ -84,6 +84,10 @@ class InputManager:
         t1 : str
             Path to the T1 image file to store.
         """
+        if t1 in self._provided_inputs["t1"]:
+            self._current_inputs["t1"] = self._provided_inputs["t1"].index(t1)
+            return
+
         self._provided_inputs["t1"].append(t1)
         self._current_inputs["t1"] = len(self._provided_inputs["t1"]) - 1
 
@@ -340,6 +344,17 @@ class InputManager:
             True if a parcel is available, False otherwise.
         """
         return len(self._provided_inputs["parcel"]) > 0
+
+    @property
+    def provided_images(self):
+        """Return the provided images.
+
+        Returns
+        -------
+        list[str]
+            List of paths to the provided images.
+        """
+        return self._provided_inputs["t1"]
 
 
 input_manager = InputManager()

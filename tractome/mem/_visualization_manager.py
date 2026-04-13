@@ -256,6 +256,22 @@ class VisualizationManager:
         )
         self._apply_tractogram_states()
 
+    def toggle_t1_visibility(self):
+        """Toggle the visibility of the T1 image slicer."""
+        t1 = self._visualizations["t1"]
+        if not t1:
+            return
+        for actor in t1:
+            actor.visible = not actor.visible
+
+    @property
+    def t1_is_visible(self):
+        """Whether the T1 visualization is currently shown (defaults True if absent)."""
+        t1 = self._visualizations["t1"]
+        if not t1:
+            return True
+        return bool(t1[0].visible)
+
     @property
     def tractogram_visualizations(self):
         """Get the tractogram visualizations."""

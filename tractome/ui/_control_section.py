@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from tractome.mem import state_manager, visualization_manager
+from tractome.mem import input_manager, state_manager, visualization_manager
 from tractome.ui._paths import ICONS_PATH
 
 
@@ -24,7 +24,7 @@ class ClustersWidget(QFrame):
         self.setObjectName("clustersWidget")
 
         self.main_layout = QVBoxLayout(self)
-        self.main_layout.setContentsMargins(12, 12, 12, 12)
+        self.main_layout.setContentsMargins(8, 8, 8, 8)
         self.main_layout.setSpacing(8)
 
         self.title = QLabel("CLUSTERS")
@@ -225,24 +225,20 @@ class LeftSectionWidget(QFrame):
         self.setObjectName("interactionLeftSection")
 
         self.main_layout = QVBoxLayout(self)
-        self.main_layout.setContentsMargins(12, 12, 12, 12)
-        self.main_layout.setSpacing(20)
+        self.main_layout.setContentsMargins(8, 8, 8, 8)
+        self.main_layout.setSpacing(10)
 
         self.clusters_box = ClustersWidget(parent=self)
         self.main_layout.addWidget(self.clusters_box)
 
         self.main_layout.addStretch()
 
-    def update_controls_for_visualization(
-        self, visualizations, *, visualization_type="unknown"
-    ):
+    def update_controls_for_visualization(self):
         """Show/hide controls depending on visualization type."""
-        has_items = len(visualizations) > 0
-        is_tractogram = visualization_type == "tractogram"
+        has_tractogram_input = input_manager.has_tractogram
+        self.clusters_box.setVisible(has_tractogram_input)
 
-        self.clusters_box.setVisible(has_items and is_tractogram)
-
-        if has_items and is_tractogram:
+        if has_tractogram_input:
             self._sync_clusters_from_latest_state()
 
     def _sync_clusters_from_latest_state(self):

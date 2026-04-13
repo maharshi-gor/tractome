@@ -53,10 +53,11 @@ QPushButton {
     border-radius: 12px;
 }
 
+#imageTitle,
 #clustersTitle {
 	color: #ffffff;
 	font-weight: bold;
-    font-size: 14pt;
+    font-size: 13pt;
     letter-spacing: 1px;
     padding-bottom: 2px;
 }
@@ -138,4 +139,76 @@ QPushButton {
     background: transparent;
     color: #ffffff;
     font-size: 11pt;
+}
+
+/* Image Input Widget */
+#imageInputWidget {
+    background-color: #1e1e1e;
+    border: 2px solid #a2a2a2;
+    border-radius: 12px;
+    outline: none;
+}
+
+#t1VisibilityButton {
+    padding: 0;
+    border: none;
+}
+
+#imageInputDropdown {
+    color: #ffffff;
+    background-color: #575757;
+    border: 2px solid #747474;
+    border-radius: 8px;
+    /* Do not add large padding-right here: it stacks with the line edit’s text
+       margins and shrinks the visible text area. Arrow spacing uses ::drop-down width. */
+    padding-top: 4px;
+    padding-bottom: 4px;
+    padding-left: 8px;
+    padding-right: 4px;
+    font-size: 11pt;
+    min-height: 1.2em;
+    outline: none;
+}
+
+#imageInputDropdownLineEdit {
+    background-color: transparent;
+    border: none;
+    color: #ffffff;
+    padding: 0px;
+    selection-background-color: #747474;
+    selection-color: #ffffff;
+}
+
+#imageInputDropdown:hover {
+    border-color: #8a8a8a;
+}
+
+#imageInputDropdown:focus {
+    border-color: #747474;
+}
+
+#imageInputDropdown::drop-down {
+    subcontrol-origin: padding;
+    subcontrol-position: center right;
+    width: 26px;
+    border: none;
+    background: transparent;
+}
+
+#imageInputDropdown::down-arrow {
+    image: url(icons/arrow_down.svg);
+    width: 12px;
+    height: 12px;
+    margin-right: 6px;
+}
+
+#imageInputDropdown QAbstractItemView {
+    background-color: #575757;
+    border: 2px solid #747474;
+    border-radius: 8px;
+    color: #ffffff;
+    selection-background-color: #2ecc71;
+    selection-color: #121212;
+    outline: none;
+    padding: 4px;
 }

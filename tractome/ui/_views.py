@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from tractome.mem import visualization_manager
 from tractome.ui._control_section import LeftSectionWidget
 from tractome.ui._input_section import RightSectionWidget
 from tractome.ui._paths import IMAGES_PATH
@@ -89,16 +90,36 @@ class InteractionScreen(QWidget):
         super().__init__()
 
         main_layout = QHBoxLayout(self)
-        main_layout.setContentsMargins(10, 10, 10, 10)
-        main_layout.setSpacing(15)
+        main_layout.setContentsMargins(8, 8, 8, 8)
+        main_layout.setSpacing(8)
 
         self._left_section = LeftSectionWidget(parent=self)
         self._center_section = CenterSectionWidget()
         self._right_section = RightSectionWidget()
+        self._right_section.image_input_widget.t1_changed.connect(self._on_t1_changed)
+        self._right_section.image_input_widget.t1_visibility_changed.connect(
+            self._on_t1_visibility_changed
+        )
 
         main_layout.addWidget(self._left_section, 1)
         main_layout.addWidget(self._center_section, 3)
         main_layout.addWidget(self._right_section, 1)
+
+    def _on_t1_changed(self):
+        """Refresh T1 visualization after image upload/selection."""
+        if visualization_manager.t1_visualizations:
+            self.remove_visualization(
+                visualization_manager.t1_visualizations, visualization_type="t1"
+            )
+
+        t1_visualization = visualization_manager.visualize_t1()
+        if t1_visualization is not None:
+            self.add_visualization(t1_visualization, visualization_type="t1")
+        self._right_section.image_input_widget.sync_t1_visibility_button()
+
+    def _on_t1_visibility_changed(self):
+        """Re-render after toggling T1 visibility in the scene."""
+        self._center_section.show_manager.render()
 
     def add_visualization(self, visualizations, visualization_type="unknown"):
         """Add a visualization to the center section.
@@ -113,9 +134,7 @@ class InteractionScreen(QWidget):
         self._center_section.add_visualization(
             visualizations, visualization_type=visualization_type
         )
-        self._left_section.update_controls_for_visualization(
-            visualizations, visualization_type=visualization_type
-        )
+        self._left_section.update_controls_for_visualization()
         self._center_section.show_manager.render()
 
     def remove_visualization(self, visualizations, *, visualization_type="unknown"):
@@ -129,7 +148,5 @@ class InteractionScreen(QWidget):
         self._center_section.remove_visualization(
             visualizations, visualization_type=visualization_type
         )
-        self._left_section.update_controls_for_visualization(
-            [], visualization_type=visualization_type
-        )
+        self._left_section.update_controls_for_visualization()
         self._center_section.show_manager.render()
