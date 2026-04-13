@@ -4,6 +4,7 @@ from dipy.tracking.distances import bundles_distances_mam
 import numpy as np
 
 from fury import distinguishable_colormap
+from fury.actor import set_group_visibility, show_slices
 from tractome.compute import compute_dissimilarity, mkbm_clustering
 from tractome.mem import ClusterState, input_manager, state_manager
 from tractome.viz import create_image_slicer, create_streamlines, create_streamtube
@@ -263,6 +264,42 @@ class VisualizationManager:
             return
         for actor in t1:
             actor.visible = not actor.visible
+
+    def show_t1_slices(self, x, y, z):
+        """Show the T1 slices.
+
+        Parameters
+        ----------
+        x : int
+            The X slice index.
+        y : int
+            The Y slice index.
+        z : int
+            The Z slice index.
+        """
+        if not self._visualizations["t1"]:
+            return
+        state_manager.t1_state = [x, y, z]
+        show_slices(self._visualizations["t1"][0], state_manager.t1_state)
+
+    def toggle_t1_slice_visibility(self, x, y, z):
+        """Toggle the visibility of the T1 slices.
+
+        Parameters
+        ----------
+        x : int
+            The X slice index.
+        y : int
+            The Y slice index.
+        z : int
+            The Z slice index.
+        """
+        if not self._visualizations["t1"]:
+            return
+        state_manager.t1_slice_visibility = [x, y, z]
+        set_group_visibility(
+            self._visualizations["t1"][0], state_manager.t1_slice_visibility
+        )
 
     @property
     def t1_is_visible(self):

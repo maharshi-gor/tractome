@@ -3,6 +3,7 @@ from pathlib import Path
 from PySide6.QtCore import QSize, QTimer, Qt, Signal
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QFrame,
     QGraphicsOpacityEffect,
@@ -10,10 +11,11 @@ from PySide6.QtWidgets import (
     QLabel,
     QPushButton,
     QSizePolicy,
+    QSlider,
     QVBoxLayout,
 )
 
-from tractome.mem import input_manager, visualization_manager
+from tractome.mem import input_manager, state_manager, visualization_manager
 from tractome.ui._paths import ICONS_PATH
 from tractome.ui.utils import open_file_dialog
 
@@ -23,6 +25,7 @@ class ImageInputWidget(QFrame):
 
     t1_changed = Signal()
     t1_visibility_changed = Signal()
+    t1_slices_changed = Signal(int, int, int)
 
     def __init__(self, *, parent=None):
         super().__init__(parent)
@@ -66,11 +69,57 @@ class ImageInputWidget(QFrame):
 
         self.main_layout.addLayout(self.file_input_layout)
 
+        self.slice_controls_widget = QFrame(self)
+        self.slice_controls_layout = QVBoxLayout(self.slice_controls_widget)
+        self.slice_controls_layout.setContentsMargins(0, 0, 0, 0)
+        self.slice_controls_layout.setSpacing(0)
+
+        self._slice_sliders = {}
+        self._slice_labels = {}
+        self._slice_checkboxes = {}
+        for axis in ("x", "y", "z"):
+            axis_layout = QVBoxLayout()
+            axis_layout.setSpacing(4)
+            axis_layout.setContentsMargins(8, 0, 8, 0)
+
+            slice_label = QLabel("")
+            slice_label.setObjectName("imageSliceLabel")
+            axis_layout.addWidget(slice_label)
+
+            row_layout = QHBoxLayout()
+            row_layout.setSpacing(8)
+            row_layout.setContentsMargins(0, 0, 0, 0)
+
+            slice_slider = QSlider(Qt.Horizontal)
+            slice_slider.setObjectName("imageSliceSlider")
+            slice_slider.setRange(0, 0)
+            slice_slider.setValue(0)
+            row_layout.addWidget(slice_slider)
+
+            slice_checkbox = QCheckBox()
+            slice_checkbox.setObjectName("imageSliceCheckbox")
+            slice_checkbox.setChecked(True)
+            row_layout.addWidget(slice_checkbox)
+
+            axis_layout.addLayout(row_layout)
+            self.slice_controls_layout.addLayout(axis_layout)
+            self._slice_labels[axis] = slice_label
+            self._slice_sliders[axis] = slice_slider
+            self._slice_checkboxes[axis] = slice_checkbox
+        self.main_layout.addWidget(self.slice_controls_widget)
+
         self.upload_button.setCursor(Qt.PointingHandCursor)
         self.t1_visibility_button.setCursor(Qt.PointingHandCursor)
         self.upload_button.clicked.connect(self._on_upload_clicked)
         self.image_dropdown.currentIndexChanged.connect(self._on_selection_changed)
         self.t1_visibility_button.clicked.connect(self._on_t1_visibility_clicked)
+        for axis in ("x", "y", "z"):
+            self._slice_sliders[axis].valueChanged.connect(
+                lambda _value, a=axis: self._on_slice_changed(a)
+            )
+            self._slice_checkboxes[axis].toggled.connect(
+                lambda checked, a=axis: self._on_slice_toggled(a, checked)
+            )
 
         self._poll_timer = QTimer(self)
         self._poll_timer.setInterval(500)
@@ -79,6 +128,7 @@ class ImageInputWidget(QFrame):
 
         self.refresh_images()
         self._sync_t1_visibility_appearance()
+        self.sync_t1_slice_controls()
 
     def _scroll_dropdown_text_to_start(self):
         """Long filenames scroll horizontally; keep the start (basename) visible."""
@@ -106,6 +156,7 @@ class ImageInputWidget(QFrame):
         """White (full opacity) when visible, lighter when hidden."""
         has_t1 = input_manager.has_t1
         self.t1_visibility_button.setVisible(has_t1)
+        self.slice_controls_widget.setVisible(has_t1)
         if not has_t1:
             return
         if visualization_manager.t1_is_visible:
@@ -167,6 +218,80 @@ class ImageInputWidget(QFrame):
             self.image_dropdown.blockSignals(False)
         self._sync_t1_visibility_appearance()
 
+    def configure_t1_slice_controls(self):
+        """Update slice slider ranges from T1 bounding box and center state."""
+        if not input_manager.has_t1:
+            return
+
+        t1_visualization = visualization_manager.t1_visualizations
+        if not t1_visualization:
+            return
+
+        min_vals, max_vals = t1_visualization[0].get_bounding_box()
+        axis_bounds = [
+            (int(min_vals[0]), int(max_vals[0])),
+            (int(min_vals[1]), int(max_vals[1])),
+            (int(min_vals[2]), int(max_vals[2])),
+        ]
+        midpoint_state = []
+        for axis, (min_value, max_value) in zip(("x", "y", "z"), axis_bounds):
+            slider = self._slice_sliders[axis]
+            slider.blockSignals(True)
+            slider.setRange(min_value, max_value)
+            midpoint = int((min_value + max_value) / 2)
+            slider.setValue(midpoint)
+            slider.blockSignals(False)
+            midpoint_state.append(midpoint)
+
+        state_manager.t1_state = midpoint_state
+        self.sync_t1_slice_controls()
+
+    def sync_t1_slice_controls(self):
+        """Sync labels and values from state_manager.t1_state."""
+        for index, axis in enumerate(("x", "y", "z")):
+            slider = self._slice_sliders[axis]
+            checkbox = self._slice_checkboxes[axis]
+            slider.blockSignals(True)
+            value = min(
+                max(int(state_manager.t1_state[index]), slider.minimum()),
+                slider.maximum(),
+            )
+            slider.setValue(value)
+            slider.blockSignals(False)
+            checkbox.blockSignals(True)
+            checkbox.setChecked(bool(state_manager.t1_slice_visibility[index]))
+            checkbox.blockSignals(False)
+            self._slice_labels[axis].setText(f"{axis.upper()} slice: {value}")
+            slider.setEnabled(checkbox.isChecked())
+
+    def emit_current_slices(self):
+        """Emit the current XYZ slice tuple."""
+        self.t1_slices_changed.emit(
+            self._slice_sliders["x"].value(),
+            self._slice_sliders["y"].value(),
+            self._slice_sliders["z"].value(),
+        )
+
+    def _on_slice_changed(self, axis):
+        """Update axis label/state and propagate current slice tuple."""
+        axis_index = {"x": 0, "y": 1, "z": 2}[axis]
+        value = self._slice_sliders[axis].value()
+        self._slice_labels[axis].setText(f"{axis.upper()} slice: {value}")
+        state_manager.t1_state[axis_index] = value
+        self.emit_current_slices()
+
+    def _on_slice_toggled(self, axis, checked):
+        """Enable axis slider and update per-slice visibility."""
+        self._slice_sliders[axis].setEnabled(checked)
+        state_manager.t1_slice_visibility = [
+            self._slice_checkboxes[current_axis].isChecked()
+            for current_axis in ("x", "y", "z")
+        ]
+        visualization_manager.toggle_t1_slice_visibility(
+            *state_manager.t1_slice_visibility
+        )
+        self.t1_visibility_changed.emit()
+
     def _set_current_path(self, current_path):
         """Apply current T1 path in the combo selection."""
         self.image_dropdown.blockSignals(True)
@@ -196,5 +321,3 @@ class RightSectionWidget(QFrame):
 
         self.image_input_widget = ImageInputWidget(parent=self)
         self.main_layout.addWidget(self.image_input_widget)
-
-        self.main_layout.addStretch()

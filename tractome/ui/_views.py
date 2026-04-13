@@ -100,13 +100,16 @@ class InteractionScreen(QWidget):
         self._right_section.image_input_widget.t1_visibility_changed.connect(
             self._on_t1_visibility_changed
         )
+        self._right_section.image_input_widget.t1_slices_changed.connect(
+            self._on_t1_slices_changed
+        )
 
         main_layout.addWidget(self._left_section, 1)
         main_layout.addWidget(self._center_section, 3)
         main_layout.addWidget(self._right_section, 1)
 
     def _on_t1_changed(self):
-        """Refresh T1 visualization after image upload/selection."""
+        """Refresh T1 visualization and reset slices for current T1."""
         if visualization_manager.t1_visualizations:
             self.remove_visualization(
                 visualization_manager.t1_visualizations, visualization_type="t1"
@@ -115,10 +118,18 @@ class InteractionScreen(QWidget):
         t1_visualization = visualization_manager.visualize_t1()
         if t1_visualization is not None:
             self.add_visualization(t1_visualization, visualization_type="t1")
+            # Recompute bounds and midpoint state from the newly loaded T1.
+            self._right_section.image_input_widget.configure_t1_slice_controls()
+            self._right_section.image_input_widget.emit_current_slices()
         self._right_section.image_input_widget.sync_t1_visibility_button()
 
     def _on_t1_visibility_changed(self):
         """Re-render after toggling T1 visibility in the scene."""
+        self._center_section.show_manager.render()
+
+    def _on_t1_slices_changed(self, x, y, z):
+        """Update shown T1 slices from the input controls."""
+        visualization_manager.show_t1_slices(x, y, z)
         self._center_section.show_manager.render()
 
     def add_visualization(self, visualizations, visualization_type="unknown"):

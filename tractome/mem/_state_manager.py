@@ -38,6 +38,8 @@ class StateManager:
         self._states = []
         self._max_size = max_size
         self._current_index = -1  # -1 means no state yet
+        self.t1_state = [0, 0, 0]
+        self.t1_slice_visibility = [True, True, True]
 
     def has_states(self):
         """Check if there are any states in the history.

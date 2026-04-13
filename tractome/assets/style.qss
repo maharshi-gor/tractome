@@ -12,6 +12,61 @@ QPushButton {
 	background-color: #575757;
 }
 
+QSlider {
+    min-height: 22px;
+}
+
+QSlider::groove:horizontal {
+    height: 4px;
+    background: #707070;
+    border: none;
+    border-radius: 2px;
+}
+
+QSlider::sub-page:horizontal {
+    background: #707070;
+    border-radius: 2px;
+}
+
+QSlider::add-page:horizontal {
+    background: #707070;
+    border-radius: 2px;
+}
+
+QSlider::handle:horizontal {
+    width: 14px;
+    margin: -5px 0;
+    background: #ffffff;
+    border: none;
+    border-radius: 7px;
+}
+
+QCheckBox {
+    min-width: 16px;
+    max-width: 16px;
+    min-height: 16px;
+    max-height: 16px;
+    spacing: 0px;
+}
+
+QCheckBox::indicator {
+    width: 12px;
+    height: 12px;
+    border: 2px solid #d8d8d8;
+    border-radius: 4px;
+    background: transparent;
+}
+
+QCheckBox::indicator:checked {
+    background-color: transparent;
+    border-color: #d8d8d8;
+    height: 8px;
+    width: 8px;
+    padding: 2px;
+    image: url(icons/check.svg);
+}
+
+
 /* Specific Styles */
 #titleLabel {
   font-size: 48pt;
@@ -152,6 +207,13 @@ QPushButton {
 #t1VisibilityButton {
     padding: 0;
     border: none;
+}
+
+#imageSliceLabel {
+    color: #ffffff;
+    font-size: 12pt;
+    font-weight: bold;
+    min-width: 140px;
 }
 
 #imageInputDropdown {
