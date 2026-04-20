@@ -597,6 +597,229 @@ class MeshInputWidget(QFrame):
         self._sync_mesh_visibility_appearance()
 
 
+class ParcelInputWidget(QFrame):
+    """Widget for parcel CSV inputs (space-separated points and colors)."""
+
+    parcel_changed = Signal()
+    parcel_visibility_changed = Signal()
+    parcel_size_changed = Signal(int)
+
+    def __init__(self, *, parent=None):
+        super().__init__(parent)
+        self.setObjectName("parcelInputWidget")
+
+        self.main_layout = QVBoxLayout(self)
+        self.main_layout.setContentsMargins(8, 8, 8, 8)
+        self.main_layout.setSpacing(8)
+
+        self.title = QLabel("PARCELS")
+        self.title.setObjectName("parcelTitle")
+        self.main_layout.addWidget(self.title)
+
+        std_h = 38
+
+        self.parcel_row = QHBoxLayout()
+        self.parcel_row.setSpacing(8)
+        self.parcel_row.setContentsMargins(8, 0, 8, 0)
+
+        self.parcel_upload_button = QPushButton("")
+        self.parcel_upload_button.setIcon(QIcon(str(ICONS_PATH / "upload.svg")))
+        self.parcel_upload_button.setIconSize(QSize(16, 16))
+        self.parcel_upload_button.setObjectName("uploadButton")
+        self.parcel_upload_button.setFixedSize(std_h, std_h)
+        self.parcel_upload_button.setToolTip(
+            "Load parcel file (space-separated values)"
+        )
+        self.parcel_row.addWidget(self.parcel_upload_button)
+
+        self.parcel_dropdown = QComboBox()
+        self.parcel_dropdown.setObjectName("parcelInputDropdown")
+        self.parcel_dropdown.setFixedHeight(std_h)
+        self.parcel_dropdown.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.parcel_dropdown.setEditable(True)
+        self.parcel_row.addWidget(self.parcel_dropdown)
+        _ple = self.parcel_dropdown.lineEdit()
+        if _ple is not None:
+            _ple.setObjectName("parcelInputDropdownLineEdit")
+
+        self.parcel_visibility_button = QPushButton("")
+        self.parcel_visibility_button.setObjectName("parcelVisibilityButton")
+        self.parcel_visibility_button.setIcon(QIcon(str(ICONS_PATH / "eye.svg")))
+        self.parcel_visibility_button.setIconSize(QSize(18, 18))
+        self.parcel_visibility_button.setFixedSize(std_h, std_h)
+        self.parcel_visibility_effect = QGraphicsOpacityEffect(
+            self.parcel_visibility_button
+        )
+        self.parcel_visibility_button.setGraphicsEffect(self.parcel_visibility_effect)
+        self.parcel_row.addWidget(self.parcel_visibility_button)
+
+        self.parcel_remove_button = QPushButton("×")
+        self.parcel_remove_button.setObjectName("parcelRemoveButton")
+        self.parcel_remove_button.setFixedSize(std_h, std_h)
+        self.parcel_row.addWidget(self.parcel_remove_button)
+
+        self.main_layout.addLayout(self.parcel_row)
+
+        self._parcel_controls = QWidget()
+        self._parcel_controls.setObjectName("parcelExtraControls")
+        parcel_controls_layout = QVBoxLayout(self._parcel_controls)
+        parcel_controls_layout.setContentsMargins(0, 0, 0, 0)
+        parcel_controls_layout.setSpacing(8)
+
+        opacity_header = QHBoxLayout()
+        self.opacity_label = QLabel("Opacity")
+        self.opacity_label.setObjectName("parcelOpacityLabel")
+        self.opacity_label.setToolTip("Controls parcel point size (0–100).")
+        opacity_header.addWidget(self.opacity_label)
+        opacity_header.addStretch()
+        parcel_controls_layout.addLayout(opacity_header)
+
+        opacity_slider_row = QHBoxLayout()
+        self.opacity_min_label = QLabel("0")
+        self.opacity_min_label.setObjectName("parcelOpacityTickLabel")
+        self.opacity_slider = QSlider(Qt.Horizontal)
+        self.opacity_slider.setObjectName("parcelOpacitySlider")
+        self.opacity_slider.setRange(0, 100)
+        self.opacity_slider.setValue(100)
+        self.opacity_slider.setToolTip("Controls parcel point size (0–100).")
+        self.opacity_max_label = QLabel("100")
+        self.opacity_max_label.setObjectName("parcelOpacityTickLabel")
+        opacity_slider_row.addWidget(self.opacity_min_label)
+        opacity_slider_row.addWidget(self.opacity_slider)
+        opacity_slider_row.addWidget(self.opacity_max_label)
+        parcel_controls_layout.addLayout(opacity_slider_row)
+
+        self.main_layout.addWidget(self._parcel_controls)
+
+        self.parcel_upload_button.setCursor(Qt.PointingHandCursor)
+        self.parcel_visibility_button.setCursor(Qt.PointingHandCursor)
+        self.parcel_remove_button.setCursor(Qt.PointingHandCursor)
+
+        self.parcel_upload_button.clicked.connect(self._on_parcel_upload_clicked)
+        self.parcel_dropdown.currentIndexChanged.connect(
+            self._on_parcel_dropdown_changed
+        )
+        self.parcel_visibility_button.clicked.connect(
+            self._on_parcel_visibility_clicked
+        )
+        self.parcel_remove_button.clicked.connect(self._on_remove_parcel_clicked)
+        self.opacity_slider.valueChanged.connect(self._on_size_changed)
+
+        self._poll_timer = QTimer(self)
+        self._poll_timer.setInterval(500)
+        self._poll_timer.timeout.connect(self.refresh_parcel_lists)
+        self._poll_timer.start()
+
+        self.refresh_parcel_lists()
+        self._sync_parcel_visibility_appearance()
+
+    def _scroll_parcel_dropdown_to_start(self):
+        le = self.parcel_dropdown.lineEdit()
+        if le is not None:
+            le.setCursorPosition(0)
+            le.deselect()
+
+    def _schedule_parcel_dropdown_scroll(self):
+        QTimer.singleShot(0, self._scroll_parcel_dropdown_to_start)
+
+    def _on_parcel_visibility_clicked(self):
+        visualization_manager.toggle_parcel_visibility()
+        self._sync_parcel_visibility_appearance()
+        self.parcel_visibility_changed.emit()
+
+    def _sync_parcel_visibility_appearance(self):
+        has_parcel = input_manager.has_parcel
+        self.parcel_visibility_button.setVisible(has_parcel)
+        self.parcel_remove_button.setEnabled(has_parcel)
+        self._update_parcel_controls_visibility()
+        if not has_parcel:
+            return
+        if visualization_manager.parcel_is_visible:
+            self.parcel_visibility_effect.setOpacity(1.0)
+        else:
+            self.parcel_visibility_effect.setOpacity(0.42)
+
+    def _update_parcel_controls_visibility(self):
+        self._parcel_controls.setVisible(input_manager.has_parcel)
+
+    def _on_size_changed(self, value):
+        state_manager.parcel_size = value
+        self.parcel_size_changed.emit(value)
+
+    def _on_parcel_upload_clicked(self):
+        file_path = open_file_dialog(
+            parent=self,
+            title="Select a parcel file",
+            file_filter=(
+                "Parcel text / CSV (*.csv *.txt);; "
+                "CSV Files (*.csv);; Text Files (*.txt);; All Files (*.*)"
+            ),
+        )
+        if not file_path:
+            return
+        input_manager.add_parcel(file_path)
+        self.refresh_parcel_lists()
+        self.parcel_changed.emit()
+
+    def _on_parcel_dropdown_changed(self, index):
+        if index < 0 or not input_manager.has_parcel:
+            return
+        input_manager.set_current_parcel(index)
+        self.parcel_changed.emit()
+
+    def _on_remove_parcel_clicked(self):
+        if not input_manager.has_parcel:
+            return
+        idx = input_manager.current_parcel_index
+        if idx < 0:
+            return
+        input_manager.remove_parcel(idx)
+        self.refresh_parcel_lists()
+        self.parcel_changed.emit()
+
+    def refresh_parcel_lists(self):
+        parcel_paths = input_manager.provided_parcel_paths
+
+        try:
+            _pts, _colors, cur_path, _idx = input_manager.get_current_parcel()
+        except ValueError:
+            cur_path = None
+
+        current_items = [
+            self.parcel_dropdown.itemData(i, Qt.UserRole)
+            for i in range(self.parcel_dropdown.count())
+        ]
+        if current_items == parcel_paths:
+            self._set_parcel_current_path(cur_path)
+        else:
+            self.parcel_dropdown.blockSignals(True)
+            self.parcel_dropdown.clear()
+            for path in parcel_paths:
+                self.parcel_dropdown.addItem(Path(path).name, path)
+            self.parcel_dropdown.blockSignals(False)
+            self._set_parcel_current_path(cur_path)
+        self._sync_parcel_visibility_appearance()
+        self.opacity_slider.blockSignals(True)
+        self.opacity_slider.setValue(state_manager.parcel_size)
+        self.opacity_slider.blockSignals(False)
+
+    def _set_parcel_current_path(self, current_path):
+        self.parcel_dropdown.blockSignals(True)
+        try:
+            if not current_path:
+                self.parcel_dropdown.setCurrentIndex(-1)
+            else:
+                idx = self.parcel_dropdown.findData(current_path, Qt.UserRole)
+                self.parcel_dropdown.setCurrentIndex(idx)
+        finally:
+            self.parcel_dropdown.blockSignals(False)
+        self._schedule_parcel_dropdown_scroll()
+
+    def sync_parcel_visibility_button(self):
+        """Update eye icon from the current parcel visibility in the scene."""
+        self._sync_parcel_visibility_appearance()
+
+
 class RightSectionWidget(QFrame):
     """Right section container for add-ons and track views."""
 
@@ -615,3 +838,6 @@ class RightSectionWidget(QFrame):
 
         self.mesh_input_widget = MeshInputWidget(parent=self)
         self.main_layout.addWidget(self.mesh_input_widget)
+
+        self.parcel_input_widget = ParcelInputWidget(parent=self)
+        self.main_layout.addWidget(self.parcel_input_widget)

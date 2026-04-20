@@ -10,6 +10,7 @@ from tractome.mem import ClusterState, input_manager, state_manager
 from tractome.viz import (
     create_image_slicer,
     create_mesh,
+    create_parcels,
     create_streamlines,
     create_streamtube,
 )
@@ -395,6 +396,61 @@ class VisualizationManager:
     def t1_visualizations(self):
         """Get the T1 visualizations."""
         return self._visualizations["t1"]
+
+    def visualize_parcel(self):
+        """Build the parcel point actor for the current parcel file.
+
+        Returns
+        -------
+        list | None
+            A single-element list containing the parcel actor, or None if no parcel.
+        """
+        if not input_manager.has_parcel:
+            self._visualizations["parcel"] = None
+            return None
+
+        points, colors, _, _ = input_manager.get_current_parcel()
+        parcel_actor = create_parcels(points, colors)
+        parcel_actor.visible = state_manager.parcel_visible
+        parcel_actor.material.size = state_manager.parcel_size / 25.0
+        self._visualizations["parcel"] = [parcel_actor]
+        return self._visualizations["parcel"]
+
+    def toggle_parcel_visibility(self):
+        """Toggle parcel actor visibility."""
+        parcel = self._visualizations["parcel"]
+        if not parcel:
+            return
+        parcel[0].visible = not parcel[0].visible
+        state_manager.parcel_visible = parcel[0].visible
+
+    def set_parcel_size(self, value):
+        """Set parcel point size from a 0–100 slider (legacy mapping: value/25)."""
+        parcel = self._visualizations["parcel"]
+        if not parcel:
+            return
+        state_manager.parcel_size = value
+        parcel[0].material.size = value / 25.0
+
+    def sync_parcel_visibility_from_state(self):
+        """Apply state_manager.parcel_visible to the parcel actor if present."""
+        parcel = self._visualizations["parcel"]
+        if not parcel:
+            return
+        parcel[0].visible = state_manager.parcel_visible
+
+    @property
+    def parcel_is_visible(self):
+        """Whether the parcel actor is shown (defaults True if absent)."""
+        parcel = self._visualizations["parcel"]
+        if not parcel:
+            return True
+        return bool(parcel[0].visible)
+
+    @property
+    def parcel_visualizations(self):
+        """Return the parcel visualization list."""
+        return self._visualizations["parcel"]
 
 
 visualization_manager = VisualizationManager()

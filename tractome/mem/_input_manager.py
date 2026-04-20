@@ -127,6 +127,13 @@ class InputManager:
         parcel : str
             Path to the parcel file to store.
         """
+        if parcel in self._provided_inputs["parcel"]:
+            self._current_inputs["parcel"] = self._provided_inputs["parcel"].index(
+                parcel
+            )
+            self._loaded_inputs["parcel"] = None
+            return
+
         self._provided_inputs["parcel"].append(parcel)
         self._current_inputs["parcel"] = len(self._provided_inputs["parcel"]) - 1
 
@@ -446,6 +453,52 @@ class InputManager:
     def current_mesh_index(self):
         """Index of the selected mesh/texture pair, or -1 if none."""
         return self._current_inputs["mesh"]
+
+    @property
+    def provided_parcel_paths(self):
+        """Return paths for loaded parcel files."""
+        return list(self._provided_inputs["parcel"])
+
+    @property
+    def current_parcel_index(self):
+        """Index of the selected parcel file, or -1 if none."""
+        return self._current_inputs["parcel"]
+
+    def set_current_parcel(self, index):
+        """Select a parcel file by list index.
+
+        Parameters
+        ----------
+        index : int
+            Index into the parcel list.
+        """
+        if index < 0 or index >= len(self._provided_inputs["parcel"]):
+            raise ValueError("Invalid parcel index.")
+        self._current_inputs["parcel"] = index
+        self._loaded_inputs["parcel"] = None
+
+    def remove_parcel(self, index):
+        """Remove a parcel entry at the given index.
+
+        Parameters
+        ----------
+        index : int
+            Index of the parcel to remove.
+        """
+        if index < 0 or index >= len(self._provided_inputs["parcel"]):
+            raise ValueError("Invalid parcel index.")
+        del self._provided_inputs["parcel"][index]
+        self._loaded_inputs["parcel"] = None
+
+        n = len(self._provided_inputs["parcel"])
+        if n == 0:
+            self._current_inputs["parcel"] = -1
+        else:
+            cur = self._current_inputs["parcel"]
+            if cur == index:
+                self._current_inputs["parcel"] = min(index, n - 1)
+            elif cur > index:
+                self._current_inputs["parcel"] = cur - 1
 
 
 input_manager = InputManager()

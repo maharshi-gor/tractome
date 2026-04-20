@@ -121,6 +121,7 @@ QCheckBox::indicator:checked {
 
 #imageTitle,
 #meshTitle,
+#parcelTitle,
 #clustersTitle {
 	color: #ffffff;
 	font-weight: bold;
@@ -384,6 +385,109 @@ QCheckBox::indicator:checked {
 }
 
 #meshInputDropdown QAbstractItemView {
+    background-color: #575757;
+    border: 2px solid #747474;
+    border-radius: 8px;
+    color: #ffffff;
+    selection-background-color: #2ecc71;
+    selection-color: #121212;
+    outline: none;
+    padding: 4px;
+}
+
+/* Parcel Input Widget */
+#parcelInputWidget {
+    background-color: #1e1e1e;
+    border: 2px solid #a2a2a2;
+    border-radius: 12px;
+    outline: none;
+}
+
+#parcelVisibilityButton {
+    padding: 0;
+    border: none;
+}
+
+#parcelRemoveButton {
+    padding: 0;
+    border: none;
+    color: #ffffff;
+    font-size: 14pt;
+    font-weight: bold;
+}
+
+#parcelOpacityLabel {
+    color: #ffffff;
+    font-size: 11pt;
+}
+
+#parcelOpacityTickLabel {
+    color: #aaaaaa;
+    font-size: 10pt;
+}
+
+#parcelOpacitySlider::groove:horizontal {
+    background: #575757;
+    height: 6px;
+    border-radius: 3px;
+}
+
+#parcelOpacitySlider::handle:horizontal {
+    background: #c0c0c0;
+    width: 14px;
+    height: 14px;
+    margin: -5px 0;
+    border-radius: 7px;
+}
+
+#parcelInputDropdown {
+    color: #ffffff;
+    background-color: #575757;
+    border: 2px solid #747474;
+    border-radius: 8px;
+    padding-top: 4px;
+    padding-bottom: 4px;
+    padding-left: 8px;
+    padding-right: 4px;
+    font-size: 11pt;
+    min-height: 1.2em;
+    outline: none;
+}
+
+#parcelInputDropdownLineEdit {
+    background-color: transparent;
+    border: none;
+    color: #ffffff;
+    padding: 0px;
+    font-style: italic;
+    selection-background-color: #747474;
+    selection-color: #ffffff;
+}
+
+#parcelInputDropdown:hover {
+    border-color: #8a8a8a;
+}
+
+#parcelInputDropdown:focus {
+    border-color: #747474;
+}
+
+#parcelInputDropdown::drop-down {
+    subcontrol-origin: padding;
+    subcontrol-position: center right;
+    width: 26px;
+    border: none;
+    background: transparent;
+}
+
+#parcelInputDropdown::down-arrow {
+    image: url(icons/arrow_down.svg);
+    width: 12px;
+    height: 12px;
+    margin-right: 6px;
+}
+
+#parcelInputDropdown QAbstractItemView {
     background-color: #575757;
     border: 2px solid #747474;
     border-radius: 8px;

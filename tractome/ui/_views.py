@@ -115,6 +115,15 @@ class InteractionScreen(QWidget):
         self._right_section.mesh_input_widget.mesh_material_changed.connect(
             self._on_mesh_material_changed
         )
+        self._right_section.parcel_input_widget.parcel_changed.connect(
+            self._on_parcel_changed
+        )
+        self._right_section.parcel_input_widget.parcel_visibility_changed.connect(
+            self._on_parcel_visibility_changed
+        )
+        self._right_section.parcel_input_widget.parcel_size_changed.connect(
+            self._on_parcel_size_changed
+        )
 
         main_layout.addWidget(self._left_section, 1)
         main_layout.addWidget(self._center_section, 3)
@@ -173,6 +182,25 @@ class InteractionScreen(QWidget):
         if mesh_vis is not None:
             self.add_visualization(mesh_vis, visualization_type="mesh")
         self._right_section.mesh_input_widget.sync_mesh_visibility_button()
+
+    def _on_parcel_changed(self):
+        """Reload parcel actor when the file selection changes."""
+        parcel_viz = visualization_manager.parcel_visualizations
+        if parcel_viz:
+            self.remove_visualization(parcel_viz, visualization_type="parcel")
+        parcel_vis = visualization_manager.visualize_parcel()
+        if parcel_vis is not None:
+            self.add_visualization(parcel_vis, visualization_type="parcel")
+        self._right_section.parcel_input_widget.sync_parcel_visibility_button()
+
+    def _on_parcel_visibility_changed(self):
+        """Re-render after toggling parcel visibility."""
+        self._center_section.show_manager.render()
+
+    def _on_parcel_size_changed(self, value):
+        """Apply parcel point size from the slider (labeled Opacity in the UI)."""
+        visualization_manager.set_parcel_size(value)
+        self._center_section.show_manager.render()
 
     def add_visualization(self, visualizations, visualization_type="unknown"):
         """Add a visualization to the center section.

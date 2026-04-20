@@ -43,6 +43,8 @@ class StateManager:
         self.mesh_mode = "photographic"
         self.mesh_opacity = 100
         self.mesh_visible = True
+        self.parcel_size = 100
+        self.parcel_visible = True
 
     def has_states(self):
         """Check if there are any states in the history.
