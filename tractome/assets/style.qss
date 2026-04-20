@@ -42,11 +42,22 @@ QSlider::handle:horizontal {
 }
 
 QCheckBox {
+    spacing: 4px;
+}
+
+/* Indicator-only checkboxes (no label text) stay compact */
+QCheckBox#imageSliceCheckbox {
     min-width: 16px;
     max-width: 16px;
     min-height: 16px;
     max-height: 16px;
     spacing: 0px;
+}
+
+/* Labeled mesh mode toggles must grow with their text */
+#meshMaterialCheckbox {
+    min-width: 0px;
+    max-width: 16777215px;
 }
 
 QCheckBox::indicator {
@@ -109,6 +120,7 @@ QCheckBox::indicator:checked {
 }
 
 #imageTitle,
+#meshTitle,
 #clustersTitle {
 	color: #ffffff;
 	font-weight: bold;
@@ -265,6 +277,113 @@ QCheckBox::indicator:checked {
 }
 
 #imageInputDropdown QAbstractItemView {
+    background-color: #575757;
+    border: 2px solid #747474;
+    border-radius: 8px;
+    color: #ffffff;
+    selection-background-color: #2ecc71;
+    selection-color: #121212;
+    outline: none;
+    padding: 4px;
+}
+
+/* Mesh Input Widget */
+#meshInputWidget {
+    background-color: #1e1e1e;
+    border: 2px solid #a2a2a2;
+    border-radius: 12px;
+    outline: none;
+}
+
+#meshVisibilityButton {
+    padding: 0;
+    border: none;
+}
+
+#meshRemoveButton {
+    padding: 0;
+    border: none;
+    color: #ffffff;
+    font-size: 14pt;
+    font-weight: bold;
+}
+
+#meshOpacityLabel {
+    color: #ffffff;
+    font-size: 11pt;
+}
+
+#meshOpacityTickLabel {
+    color: #aaaaaa;
+    font-size: 10pt;
+}
+
+#meshOpacitySlider::groove:horizontal {
+    background: #575757;
+    height: 6px;
+    border-radius: 3px;
+}
+
+#meshOpacitySlider::handle:horizontal {
+    background: #c0c0c0;
+    width: 14px;
+    height: 14px;
+    margin: -5px 0;
+    border-radius: 7px;
+}
+
+#meshMaterialCheckbox {
+    color: #ffffff;
+    font-size: 10pt;
+}
+
+#meshInputDropdown {
+    color: #ffffff;
+    background-color: #575757;
+    border: 2px solid #747474;
+    border-radius: 8px;
+    padding-top: 4px;
+    padding-bottom: 4px;
+    padding-left: 8px;
+    padding-right: 4px;
+    font-size: 11pt;
+    min-height: 1.2em;
+    outline: none;
+}
+
+#meshInputDropdownLineEdit {
+    background-color: transparent;
+    border: none;
+    color: #ffffff;
+    padding: 0px;
+    selection-background-color: #747474;
+    selection-color: #ffffff;
+}
+
+#meshInputDropdown:hover {
+    border-color: #8a8a8a;
+}
+
+#meshInputDropdown:focus {
+    border-color: #747474;
+}
+
+#meshInputDropdown::drop-down {
+    subcontrol-origin: padding;
+    subcontrol-position: center right;
+    width: 26px;
+    border: none;
+    background: transparent;
+}
+
+#meshInputDropdown::down-arrow {
+    image: url(icons/arrow_down.svg);
+    width: 12px;
+    height: 12px;
+    margin-right: 6px;
+}
+
+#meshInputDropdown QAbstractItemView {
     background-color: #575757;
     border: 2px solid #747474;
     border-radius: 8px;

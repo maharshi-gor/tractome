@@ -134,6 +134,12 @@ class Tractome(QMainWindow):
             self._interaction_screen.add_visualization(
                 tractogram_visualization, visualization_type="tractogram"
             )
+        mesh_visualization = visualization_manager.visualize_mesh()
+        if mesh_visualization is not None:
+            self._interaction_screen.add_visualization(
+                mesh_visualization, visualization_type="mesh"
+            )
+            self._interaction_screen._right_section.mesh_input_widget.sync_mesh_visibility_button()
 
     def start(self):
         """Show the main window and start the FURY/Qt loop."""

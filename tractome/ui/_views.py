@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from tractome.mem import visualization_manager
+from tractome.mem import input_manager, visualization_manager
 from tractome.ui._control_section import LeftSectionWidget
 from tractome.ui._input_section import RightSectionWidget
 from tractome.ui._paths import IMAGES_PATH
@@ -103,6 +103,18 @@ class InteractionScreen(QWidget):
         self._right_section.image_input_widget.t1_slices_changed.connect(
             self._on_t1_slices_changed
         )
+        self._right_section.mesh_input_widget.mesh_changed.connect(
+            self._on_mesh_changed
+        )
+        self._right_section.mesh_input_widget.mesh_visibility_changed.connect(
+            self._on_mesh_visibility_changed
+        )
+        self._right_section.mesh_input_widget.mesh_opacity_changed.connect(
+            self._on_mesh_opacity_changed
+        )
+        self._right_section.mesh_input_widget.mesh_material_changed.connect(
+            self._on_mesh_material_changed
+        )
 
         main_layout.addWidget(self._left_section, 1)
         main_layout.addWidget(self._center_section, 3)
@@ -118,7 +130,6 @@ class InteractionScreen(QWidget):
         t1_visualization = visualization_manager.visualize_t1()
         if t1_visualization is not None:
             self.add_visualization(t1_visualization, visualization_type="t1")
-            # Recompute bounds and midpoint state from the newly loaded T1.
             self._right_section.image_input_widget.configure_t1_slice_controls()
             self._right_section.image_input_widget.emit_current_slices()
         self._right_section.image_input_widget.sync_t1_visibility_button()
@@ -131,6 +142,37 @@ class InteractionScreen(QWidget):
         """Update shown T1 slices from the input controls."""
         visualization_manager.show_t1_slices(x, y, z)
         self._center_section.show_manager.render()
+
+    def _on_mesh_changed(self):
+        """Reload mesh actor when the mesh/texture pair changes."""
+        mesh_viz = visualization_manager.mesh_visualizations
+        if mesh_viz:
+            self.remove_visualization(mesh_viz, visualization_type="mesh")
+        mesh_vis = visualization_manager.visualize_mesh()
+        if mesh_vis is not None:
+            self.add_visualization(mesh_vis, visualization_type="mesh")
+        self._right_section.mesh_input_widget.sync_mesh_visibility_button()
+
+    def _on_mesh_visibility_changed(self):
+        """Re-render after toggling mesh visibility."""
+        self._center_section.show_manager.render()
+
+    def _on_mesh_opacity_changed(self, value):
+        """Apply mesh opacity from the slider."""
+        visualization_manager.set_mesh_opacity(value)
+        self._center_section.show_manager.render()
+
+    def _on_mesh_material_changed(self):
+        """Rebuild mesh when Photographic/Project material mode changes."""
+        if not input_manager.has_mesh:
+            return
+        mesh_viz = visualization_manager.mesh_visualizations
+        if mesh_viz:
+            self.remove_visualization(mesh_viz, visualization_type="mesh")
+        mesh_vis = visualization_manager.visualize_mesh()
+        if mesh_vis is not None:
+            self.add_visualization(mesh_vis, visualization_type="mesh")
+        self._right_section.mesh_input_widget.sync_mesh_visibility_button()
 
     def add_visualization(self, visualizations, visualization_type="unknown"):
         """Add a visualization to the center section.

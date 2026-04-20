@@ -103,7 +103,10 @@ class InputManager:
         """
         self._provided_inputs["mesh"].append(mesh)
         self._provided_inputs["mesh_texture"].append(mesh_texture)
-        self._current_inputs["mesh"] = len(self._provided_inputs["mesh"]) - 1
+        idx = len(self._provided_inputs["mesh"]) - 1
+        self._current_inputs["mesh"] = idx
+        self._current_inputs["mesh_texture"] = idx
+        self._loaded_inputs["mesh"] = None
 
     def add_roi(self, roi):
         """Add an ROI path and make it the current ROI.
@@ -187,12 +190,13 @@ class InputManager:
         return self._loaded_inputs["t1"]
 
     def get_current_mesh(self):
-        """Return the current mesh path.
+        """Load and return the current mesh/texture pair.
 
         Returns
         -------
-        str
-            Path to the currently selected mesh file.
+        tuple
+            ``(mesh_obj, texture_path, mesh_file_path, index)`` where ``texture_path``
+            may be a validated path string or ``None``.
 
         Raises
         ------
@@ -214,9 +218,64 @@ class InputManager:
             texture = self._provided_inputs["mesh_texture"][
                 self._current_inputs["mesh_texture"]
             ]
-        mesh = read_mesh(path, texture=texture)
-        self._loaded_inputs["mesh"] = (mesh, texture, path, idx)
+        mesh_obj, texture_path = read_mesh(path, texture=texture)
+        self._loaded_inputs["mesh"] = (mesh_obj, texture_path, path, idx)
         return self._loaded_inputs["mesh"]
+
+    def set_current_mesh_pair(self, index):
+        """Select a mesh/texture pair by list index.
+
+        Parameters
+        ----------
+        index : int
+            Index into the paired mesh and mesh_texture lists.
+        """
+        if index < 0 or index >= len(self._provided_inputs["mesh"]):
+            raise ValueError("Invalid mesh index.")
+        self._current_inputs["mesh"] = index
+        self._current_inputs["mesh_texture"] = index
+        self._loaded_inputs["mesh"] = None
+
+    def update_current_mesh_texture(self, texture_path):
+        """Replace the texture path for the currently selected mesh pair.
+
+        Parameters
+        ----------
+        texture_path : str
+            Path to the new texture image.
+        """
+        if self._current_inputs["mesh"] == -1:
+            return
+        idx = self._current_inputs["mesh"]
+        self._provided_inputs["mesh_texture"][idx] = texture_path
+        self._loaded_inputs["mesh"] = None
+
+    def remove_mesh_pair(self, index):
+        """Remove a mesh and its texture entry at the given index.
+
+        Parameters
+        ----------
+        index : int
+            Index of the pair to remove.
+        """
+        if index < 0 or index >= len(self._provided_inputs["mesh"]):
+            raise ValueError("Invalid mesh index.")
+        del self._provided_inputs["mesh"][index]
+        del self._provided_inputs["mesh_texture"][index]
+        self._loaded_inputs["mesh"] = None
+
+        n = len(self._provided_inputs["mesh"])
+        if n == 0:
+            self._current_inputs["mesh"] = -1
+            self._current_inputs["mesh_texture"] = -1
+        else:
+            cur = self._current_inputs["mesh"]
+            if cur == index:
+                self._current_inputs["mesh"] = min(index, n - 1)
+                self._current_inputs["mesh_texture"] = self._current_inputs["mesh"]
+            elif cur > index:
+                self._current_inputs["mesh"] = cur - 1
+                self._current_inputs["mesh_texture"] = self._current_inputs["mesh"]
 
     def get_current_roi(self):
         """Return the current ROI path.
@@ -355,6 +414,38 @@ class InputManager:
             List of paths to the provided images.
         """
         return self._provided_inputs["t1"]
+
+    @property
+    def provided_mesh_paths(self):
+        """Return paths for loaded mesh files (paired with mesh textures)."""
+        return list(self._provided_inputs["mesh"])
+
+    @property
+    def provided_mesh_texture_paths(self):
+        """Return texture paths paired with each mesh path."""
+        return list(self._provided_inputs["mesh_texture"])
+
+    def get_current_mesh_pair_paths(self):
+        """Return (mesh_path, texture_path) for the current selection.
+
+        Raises
+        ------
+        ValueError
+            If no mesh is available.
+        """
+        if self._current_inputs["mesh"] == -1:
+            raise ValueError("No mesh available.")
+        idx = self._current_inputs["mesh"]
+        mesh_path = self._provided_inputs["mesh"][idx]
+        tex_path = None
+        if idx < len(self._provided_inputs["mesh_texture"]):
+            tex_path = self._provided_inputs["mesh_texture"][idx]
+        return mesh_path, tex_path
+
+    @property
+    def current_mesh_index(self):
+        """Index of the selected mesh/texture pair, or -1 if none."""
+        return self._current_inputs["mesh"]
 
 
 input_manager = InputManager()

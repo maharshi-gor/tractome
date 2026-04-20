@@ -75,15 +75,18 @@ def create_roi(roi_data, *, affine=None, color=(1, 0, 0)):
     return roi
 
 
-def create_mesh(mesh_obj, *, texture=None, mode="normals"):
+def create_mesh(mesh_obj, *, texture=None, mode="photographic"):
     """Create a 3D mesh from the provided mesh object.
 
     Parameters
     ----------
     mesh_obj : trimesh.Trimesh
         The input mesh object to be converted.
-    texture : Optional[Texture], optional
-        The texture to be applied to the mesh, by default None
+    texture : str or None, optional
+        Path to the texture image for the mesh.
+    mode : str, optional
+        ``photographic`` uses basic shading; ``project`` uses phong shading.
+        Legacy alias: ``normals`` is treated as ``project``.
 
     Returns
     -------
@@ -91,7 +94,9 @@ def create_mesh(mesh_obj, *, texture=None, mode="normals"):
         The created 3D mesh.
     """
     mode = mode.lower()
-    if mode not in ("normals", "photographic"):
+    if mode == "normals":
+        mode = "project"
+    if mode not in ("photographic", "project"):
         raise ValueError(f"Unknown mode: {mode}")
 
     vertices = mesh_obj.vertices * 1
@@ -99,12 +104,10 @@ def create_mesh(mesh_obj, *, texture=None, mode="normals"):
 
     texture_coords = None
     if texture and hasattr(mesh_obj.visual, "uv"):
-        texture_coords = mesh_obj.visual.uv
-        logging.info(
-            "Flipping the texture coordinates vertically. To move to the"
-            " top-left origin."
-        )
-        texture_coords[:, 1] = 1 - texture_coords[:, 1]
+        uvs = np.asarray(mesh_obj.visual.uv, dtype=np.float32).copy()
+        logging.info("Flipping texture coordinates vertically (top-left image origin).")
+        uvs[:, 1] = 1.0 - uvs[:, 1]
+        texture_coords = uvs
 
     normals = None
     if hasattr(mesh_obj, "vertex_normals"):
@@ -113,7 +116,7 @@ def create_mesh(mesh_obj, *, texture=None, mode="normals"):
     mesh = actor.surface(
         vertices,
         faces,
-        material="phong" if mode == "normals" else "basic",
+        material="basic" if mode == "photographic" else "phong",
         texture=texture,
         texture_coords=texture_coords,
         normals=normals,

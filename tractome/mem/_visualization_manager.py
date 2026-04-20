@@ -7,7 +7,12 @@ from fury import distinguishable_colormap
 from fury.actor import set_group_visibility, show_slices
 from tractome.compute import compute_dissimilarity, mkbm_clustering
 from tractome.mem import ClusterState, input_manager, state_manager
-from tractome.viz import create_image_slicer, create_streamlines, create_streamtube
+from tractome.viz import (
+    create_image_slicer,
+    create_mesh,
+    create_streamlines,
+    create_streamtube,
+)
 
 
 class VisualizationManager:
@@ -57,6 +62,78 @@ class VisualizationManager:
         img, affine, _, _ = input_manager.get_current_t1()
         self._visualizations["t1"] = [create_image_slicer(img, affine=affine)]
         return self._visualizations["t1"]
+
+    def visualize_mesh(self):
+        """Build the mesh actor for the current mesh/texture pair.
+
+        Returns
+        -------
+        list | None
+            A single-element list containing the mesh actor, or None if no mesh.
+        """
+        if not input_manager.has_mesh:
+            self._visualizations["mesh"] = None
+            return None
+
+        mesh_obj, texture_path, _, _ = input_manager.get_current_mesh()
+        mode = state_manager.mesh_mode
+        if mode not in ("normals", "photographic"):
+            mode = "normals"
+        mesh_actor = create_mesh(mesh_obj, texture=texture_path, mode=mode)
+        mesh_actor.visible = state_manager.mesh_visible
+        opacity = state_manager.mesh_opacity / 100.0
+        mesh_actor.material.opacity = opacity
+        if opacity < 1.0:
+            mesh_actor.material.alpha_mode = "blend"
+            mesh_actor.material.depth_write = False
+        else:
+            mesh_actor.material.alpha_mode = "solid"
+            mesh_actor.material.depth_write = True
+        self._visualizations["mesh"] = [mesh_actor]
+        return self._visualizations["mesh"]
+
+    def toggle_mesh_visibility(self):
+        """Toggle mesh actor visibility."""
+        mesh = self._visualizations["mesh"]
+        if not mesh:
+            return
+        mesh[0].visible = not mesh[0].visible
+        state_manager.mesh_visible = mesh[0].visible
+
+    def set_mesh_opacity(self, value):
+        """Set mesh opacity from a 0–100 slider value."""
+        mesh = self._visualizations["mesh"]
+        if not mesh:
+            return
+        state_manager.mesh_opacity = value
+        opacity = value / 100.0
+        mesh[0].material.opacity = opacity
+        if opacity < 1.0:
+            mesh[0].material.alpha_mode = "blend"
+            mesh[0].material.depth_write = False
+        else:
+            mesh[0].material.alpha_mode = "solid"
+            mesh[0].material.depth_write = True
+
+    def sync_mesh_visibility_from_state(self):
+        """Apply state_manager.mesh_visible to the mesh actor if present."""
+        mesh = self._visualizations["mesh"]
+        if not mesh:
+            return
+        mesh[0].visible = state_manager.mesh_visible
+
+    @property
+    def mesh_is_visible(self):
+        """Whether the mesh actor is shown (defaults True if absent)."""
+        mesh = self._visualizations["mesh"]
+        if not mesh:
+            return True
+        return bool(mesh[0].visible)
+
+    @property
+    def mesh_visualizations(self):
+        """Return the mesh visualization list."""
+        return self._visualizations["mesh"]
 
     def visualize_tractogram(self, *, nb_clusters=100):
         """Visualize the tractogram.
