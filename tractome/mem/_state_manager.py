@@ -40,6 +40,8 @@ class StateManager:
         self._current_index = -1  # -1 means no state yet
         self.t1_state = [0, 0, 0]
         self.t1_slice_visibility = [True, True, True]
+        self.t1_slice_visibility_2d = [False, False, True]
+        self.view_mode = "3D"
         self.mesh_mode = "photographic"
         self.mesh_opacity = 100
         self.mesh_visible = True

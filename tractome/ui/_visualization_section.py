@@ -1,4 +1,4 @@
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QTimer, Qt
 from PySide6.QtWidgets import (
     QApplication,
     QFrame,
@@ -202,6 +202,76 @@ class CenterSectionWidget(QFrame):
             self._update_display_info()
             self._keystroke_card.setVisible(False)
         self._refresh_overlays()
+
+    def add_2d_visualization(self, visualizations):
+        """Add visualizations to the 2D scene.
+
+        Parameters
+        ----------
+        visualizations : list
+            The 2D actors to add.
+        """
+        if not visualizations:
+            return
+        self._2D_scene.add(*visualizations)
+
+    def remove_2d_visualization(self, visualizations):
+        """Remove visualizations from the 2D scene.
+
+        Parameters
+        ----------
+        visualizations : list
+            The 2D actors to remove.
+        """
+        if not visualizations:
+            return
+        self._2D_scene.remove(*visualizations)
+
+    def set_view_mode(self, mode):
+        """Swap the active scene/camera/controller for 3D or 2D mode.
+
+        The renderer pipeline only commits the new scene on the frame
+        after the swap, so a single ``render()`` call after switching
+        leaves a stale image on the canvas. A deferred second render is
+        scheduled via ``QTimer.singleShot`` to guarantee a fresh paint
+        once Qt has processed the scene/camera reassignment.
+
+        Parameters
+        ----------
+        mode : str
+            Either ``"3D"`` or ``"2D"``.
+        """
+        screen = self.show_manager.screens[0]
+        if mode == "2D":
+            screen.scene = self._2D_scene
+            screen.camera = self._2D_camera
+            screen.controller = self._2D_controller
+            self._3D_controller.enabled = False
+            self._2D_controller.enabled = True
+            t1_actor = self._2D_scene_t1_actor()
+            if t1_actor is not None:
+                self._2D_camera.show_object(
+                    t1_actor,
+                    tuple(
+                        -1 * np.asarray(state_manager.t1_slice_visibility_2d, dtype=int)
+                    ),
+                )
+        else:
+            screen.scene = self._3D_scene
+            screen.camera = self._3D_camera
+            screen.controller = self._3D_controller
+            self._3D_controller.enabled = True
+            self._2D_controller.enabled = False
+        self.show_manager.render()
+        QTimer.singleShot(0, self.show_manager.render)
+        self._refresh_overlays()
+
+    def _2D_scene_t1_actor(self):
+        """Return the T1 slicer currently in the 2D scene, or None."""
+        t1_viz = visualization_manager.t1_2d_visualizations
+        if not t1_viz:
+            return None
+        return t1_viz[0]
 
     def _refresh_overlays(self):
         """Force the Qt overlays to fully repaint after a scene update.

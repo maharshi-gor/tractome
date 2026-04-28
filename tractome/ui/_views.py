@@ -131,6 +131,9 @@ class InteractionScreen(QWidget):
         self._left_section.roi_input_widget.roi_opacity_changed.connect(
             self._on_roi_opacity_changed
         )
+        self._left_section.view_mode_widget.view_mode_changed.connect(
+            self._on_view_mode_changed
+        )
 
         main_layout.addWidget(self._left_section, 1)
         main_layout.addWidget(self._center_section, 3)
@@ -247,6 +250,61 @@ class InteractionScreen(QWidget):
     def _on_roi_opacity_changed(self, _value):
         """Re-render after the ROI opacity slider moves."""
         self._center_section.show_manager.render()
+
+    def _on_view_mode_changed(self, mode):
+        """Switch the active scene and matching control panels for ``mode``.
+
+        Building the 2D scene is deferred to the first 2D toggle: the
+        T1, ROI, and projection actors required for orthographic viewing
+        are only constructed when the user opts in.
+
+        Parameters
+        ----------
+        mode : str
+            Either ``"3D"`` or ``"2D"``.
+        """
+        if state_manager.view_mode == mode:
+            return
+
+        state_manager.view_mode = mode
+        if mode == "2D":
+            self._build_2d_scene_contents()
+            self._right_section.mesh_input_widget.setVisible(False)
+            self._right_section.parcel_input_widget.setVisible(False)
+            self._right_section.image_input_widget.set_slice_control_mode("radio")
+        else:
+            self._right_section.mesh_input_widget.setVisible(True)
+            self._right_section.parcel_input_widget.setVisible(True)
+            self._right_section.image_input_widget.set_slice_control_mode("checkbox")
+
+        self._center_section.set_view_mode(mode)
+        self._left_section.update_controls_for_visualization()
+
+    def _build_2d_scene_contents(self):
+        """Rebuild the actors that belong to the 2D scene.
+
+        Existing 2D T1 / ROI / streamline actors are removed first so the
+        2D scene reflects the current data and selection. The streamline
+        projections are recomputed from the latest cluster selection.
+        """
+        center = self._center_section
+        center.remove_2d_visualization(visualization_manager.t1_2d_visualizations)
+        center.remove_2d_visualization(visualization_manager.roi_2d_visualizations)
+        center.remove_2d_visualization(
+            visualization_manager.streamlines_2d_visualizations
+        )
+
+        t1_2d = visualization_manager.visualize_t1_2d()
+        if t1_2d:
+            center.add_2d_visualization(t1_2d)
+
+        roi_2d = visualization_manager.visualize_rois_2d()
+        if roi_2d:
+            center.add_2d_visualization(roi_2d)
+
+        projections = visualization_manager.visualize_streamlines_projection_2d()
+        if projections:
+            center.add_2d_visualization(projections)
 
     def add_visualization(self, visualizations, visualization_type="unknown"):
         """Add a visualization to the center section.

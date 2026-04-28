@@ -123,12 +123,62 @@ QCheckBox::indicator:checked {
 #meshTitle,
 #parcelTitle,
 #roiTitle,
-#clustersTitle {
+#clustersTitle,
+#viewModeTitle {
 	color: #ffffff;
 	font-weight: bold;
     font-size: 13pt;
     letter-spacing: 1px;
     padding-bottom: 2px;
+}
+
+#viewModeWidget {
+    background-color: transparent;
+    border: none;
+}
+
+#viewModeButton3D,
+#viewModeButton2D {
+    background-color: #1e1e1e;
+    color: #ffffff;
+    border: 2px solid #747474;
+    font-size: 11pt;
+    padding: 6px 12px;
+}
+
+#viewModeButton3D {
+    border-top-left-radius: 6px;
+    border-bottom-left-radius: 6px;
+    border-top-right-radius: 0px;
+    border-bottom-right-radius: 0px;
+    border-right: 1px solid #747474;
+}
+
+#viewModeButton2D {
+    border-top-left-radius: 0px;
+    border-bottom-left-radius: 0px;
+    border-top-right-radius: 6px;
+    border-bottom-right-radius: 6px;
+    border-left: 1px solid #747474;
+}
+
+#viewModeButton3D:checked,
+#viewModeButton2D:checked {
+    background-color: #575757;
+    border-color: #d8d8d8;
+}
+
+#imageSliceRadio::indicator {
+    width: 12px;
+    height: 12px;
+    border: 2px solid #d8d8d8;
+    border-radius: 8px;
+    background: transparent;
+}
+
+#imageSliceRadio::indicator:checked {
+    background-color: #d8d8d8;
+    border-color: #d8d8d8;
 }
 
 #clusterCountInput {

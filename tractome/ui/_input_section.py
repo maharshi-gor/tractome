@@ -3,6 +3,7 @@ from pathlib import Path
 from PySide6.QtCore import QSize, QTimer, Qt, Signal
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
+    QButtonGroup,
     QCheckBox,
     QComboBox,
     QFrame,
@@ -10,6 +11,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QRadioButton,
     QSizePolicy,
     QSlider,
     QToolButton,
@@ -79,6 +81,11 @@ class ImageInputWidget(QFrame):
         self._slice_sliders = {}
         self._slice_labels = {}
         self._slice_checkboxes = {}
+        self._slice_radios = {}
+        self._slice_rows = {}
+        self._slice_control_mode = "checkbox"
+        self._slice_radio_group = QButtonGroup(self)
+        self._slice_radio_group.setExclusive(True)
         for axis in ("x", "y", "z"):
             axis_layout = QVBoxLayout()
             axis_layout.setSpacing(4)
@@ -103,11 +110,19 @@ class ImageInputWidget(QFrame):
             slice_checkbox.setChecked(True)
             row_layout.addWidget(slice_checkbox)
 
+            slice_radio = QRadioButton()
+            slice_radio.setObjectName("imageSliceRadio")
+            slice_radio.setVisible(False)
+            self._slice_radio_group.addButton(slice_radio)
+            row_layout.addWidget(slice_radio)
+
             axis_layout.addLayout(row_layout)
             self.slice_controls_layout.addLayout(axis_layout)
             self._slice_labels[axis] = slice_label
             self._slice_sliders[axis] = slice_slider
             self._slice_checkboxes[axis] = slice_checkbox
+            self._slice_radios[axis] = slice_radio
+            self._slice_rows[axis] = row_layout
         self.main_layout.addWidget(self.slice_controls_widget)
 
         self.upload_button.setCursor(Qt.PointingHandCursor)
@@ -121,6 +136,9 @@ class ImageInputWidget(QFrame):
             )
             self._slice_checkboxes[axis].toggled.connect(
                 lambda checked, a=axis: self._on_slice_toggled(a, checked)
+            )
+            self._slice_radios[axis].toggled.connect(
+                lambda checked, a=axis: self._on_slice_radio_toggled(a, checked)
             )
 
         self._poll_timer = QTimer(self)
@@ -155,9 +173,14 @@ class ImageInputWidget(QFrame):
         self._sync_t1_visibility_appearance()
 
     def _sync_t1_visibility_appearance(self):
-        """White (full opacity) when visible, lighter when hidden."""
+        """White (full opacity) when visible, lighter when hidden.
+
+        The eye toggle is also hidden when slice controls are in radio
+        mode (2D view), where the active slice is always shown.
+        """
         has_t1 = input_manager.has_t1
-        self.t1_visibility_button.setVisible(has_t1)
+        is_radio = self._slice_control_mode == "radio"
+        self.t1_visibility_button.setVisible(has_t1 and not is_radio)
         self.slice_controls_widget.setVisible(has_t1)
         if not has_t1:
             return
@@ -250,9 +273,15 @@ class ImageInputWidget(QFrame):
 
     def sync_t1_slice_controls(self):
         """Sync labels and values from state_manager.t1_state."""
+        is_radio = self._slice_control_mode == "radio"
+        if is_radio:
+            visibility = state_manager.t1_slice_visibility_2d
+        else:
+            visibility = state_manager.t1_slice_visibility
         for index, axis in enumerate(("x", "y", "z")):
             slider = self._slice_sliders[axis]
             checkbox = self._slice_checkboxes[axis]
+            radio = self._slice_radios[axis]
             slider.blockSignals(True)
             value = min(
                 max(int(state_manager.t1_state[index]), slider.minimum()),
@@ -263,8 +292,11 @@ class ImageInputWidget(QFrame):
             checkbox.blockSignals(True)
             checkbox.setChecked(bool(state_manager.t1_slice_visibility[index]))
             checkbox.blockSignals(False)
+            radio.blockSignals(True)
+            radio.setChecked(bool(visibility[index]) if is_radio else False)
+            radio.blockSignals(False)
             self._slice_labels[axis].setText(f"{axis.upper()} slice: {value}")
-            slider.setEnabled(checkbox.isChecked())
+            slider.setEnabled(bool(visibility[index]))
 
     def emit_current_slices(self):
         """Emit the current XYZ slice tuple."""
@@ -283,7 +315,9 @@ class ImageInputWidget(QFrame):
         self.emit_current_slices()
 
     def _on_slice_toggled(self, axis, checked):
-        """Enable axis slider and update per-slice visibility."""
+        """Enable axis slider and update per-slice visibility (3D mode)."""
+        if self._slice_control_mode != "checkbox":
+            return
         self._slice_sliders[axis].setEnabled(checked)
         state_manager.t1_slice_visibility = [
             self._slice_checkboxes[current_axis].isChecked()
@@ -293,6 +327,43 @@ class ImageInputWidget(QFrame):
             *state_manager.t1_slice_visibility
         )
         self.t1_visibility_changed.emit()
+
+    def _on_slice_radio_toggled(self, axis, checked):
+        """Show only the selected axis on the 2D scene (radio mode)."""
+        if self._slice_control_mode != "radio" or not checked:
+            return
+        for current_axis in ("x", "y", "z"):
+            self._slice_sliders[current_axis].setEnabled(current_axis == axis)
+        state_manager.t1_slice_visibility_2d = [
+            self._slice_radios[current_axis].isChecked()
+            for current_axis in ("x", "y", "z")
+        ]
+        visualization_manager.toggle_t1_slice_visibility_2d(
+            *state_manager.t1_slice_visibility_2d
+        )
+        self.t1_visibility_changed.emit()
+
+    def set_slice_control_mode(self, mode):
+        """Swap the per-axis selector between checkbox and radio variants.
+
+        In radio mode the global T1 visibility eye is hidden as well: 2D
+        mode always renders the selected slice, so the toggle is moot.
+
+        Parameters
+        ----------
+        mode : str
+            ``"checkbox"`` for 3D mode (independent toggles) or ``"radio"``
+            for 2D mode (single visible axis).
+        """
+        if mode not in ("checkbox", "radio"):
+            raise ValueError(f"Unknown slice control mode: {mode}")
+        self._slice_control_mode = mode
+        is_radio = mode == "radio"
+        for axis in ("x", "y", "z"):
+            self._slice_checkboxes[axis].setVisible(not is_radio)
+            self._slice_radios[axis].setVisible(is_radio)
+        self._sync_t1_visibility_appearance()
+        self.sync_t1_slice_controls()
 
     def _set_current_path(self, current_path):
         """Apply current T1 path in the combo selection."""

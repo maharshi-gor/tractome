@@ -19,6 +19,7 @@ from tractome.viz import (
     create_parcels,
     create_roi,
     create_streamlines,
+    create_streamlines_projection,
     create_streamtube,
 )
 
@@ -55,6 +56,11 @@ class VisualizationManager:
             "roi": [],
             "parcel": None,
         }
+        self._2d_visualizations = {
+            "t1": None,
+            "roi": [],
+            "tractogram": None,
+        }
         self._roi_colormap = distinguishable_colormap()
         self._roi_colors = {}
         self._roi_visibility = {}
@@ -75,6 +81,139 @@ class VisualizationManager:
         img, affine, _, _ = input_manager.get_current_t1()
         self._visualizations["t1"] = [create_image_slicer(img, affine=affine)]
         return self._visualizations["t1"]
+
+    def visualize_t1_2d(self):
+        """Build the 2D T1 image slicer (weighted-blend, depth-write off).
+
+        Returns
+        -------
+        list | None
+            A single-element list with the 2D image slicer actor, or None
+            when no T1 image is loaded.
+        """
+        if not input_manager.has_t1:
+            self._2d_visualizations["t1"] = None
+            return None
+
+        img, affine, _, _ = input_manager.get_current_t1()
+        slicer = create_image_slicer(
+            img, affine=affine, mode="weighted_blend", depth_write=False
+        )
+        set_group_visibility(slicer, state_manager.t1_slice_visibility_2d)
+        show_slices(slicer, state_manager.t1_state)
+        self._2d_visualizations["t1"] = [slicer]
+        return self._2d_visualizations["t1"]
+
+    def visualize_rois_2d(self):
+        """Build per-ROI 2D RGBA slicers matching the current ROI list.
+
+        Each ROI volume is converted to an RGBA volume coloured with the
+        same RGB tuple used by the 3D contour, then wrapped in a slicer
+        configured for translucent overlay rendering.
+
+        Returns
+        -------
+        list
+            The list of 2D ROI slicer actors. Empty when no ROI is
+            provided.
+        """
+        self._2d_visualizations["roi"] = []
+        if not input_manager.has_roi:
+            return self._2d_visualizations["roi"]
+
+        for index in range(len(input_manager.provided_roi_paths)):
+            roi_volume, affine, path, _ = input_manager.get_roi_at(index)
+            color = self._roi_colors.get(path)
+            if color is None:
+                color = next(self._roi_colormap)
+                self._roi_colors[path] = color
+            rgba = self._build_roi_rgba_volume(roi_volume, color)
+            slicer = create_image_slicer(
+                rgba, affine=affine, mode="weighted_blend", depth_write=False
+            )
+            for child in slicer.children:
+                child.material.opacity = 0.3
+            set_group_visibility(slicer, state_manager.t1_slice_visibility_2d)
+            show_slices(slicer, np.asarray(state_manager.t1_state) + 0.1)
+            slicer.visible = self._roi_visibility.get(path, True)
+            self._2d_visualizations["roi"].append(slicer)
+        return self._2d_visualizations["roi"]
+
+    def visualize_streamlines_projection_2d(self):
+        """Build streamline projections for selected clusters in 2D.
+
+        Returns
+        -------
+        list
+            A single-element list with the projection group actor, or an
+            empty list when no clusters are selected.
+        """
+        self._2d_visualizations["tractogram"] = None
+        if not input_manager.has_tractogram or not state_manager.has_states():
+            return []
+
+        latest_state = state_manager.get_latest_state()
+        if latest_state.tractogram_states is None:
+            return []
+
+        sft, _, _, _ = input_manager.get_current_tractogram()
+        slice_values = state_manager.t1_state
+
+        projections = []
+        for state_data in latest_state.tractogram_states.values():
+            if not state_data["selected"]:
+                continue
+            streamlines = [
+                np.asarray(sft.streamlines[i]) for i in state_data["streamline_ids"]
+            ]
+            if not streamlines:
+                continue
+            projection = create_streamlines_projection(
+                streamlines=streamlines,
+                colors=state_data["color"],
+                slice_values=slice_values,
+            )
+            set_group_visibility(projection, state_manager.t1_slice_visibility_2d)
+            projections.append(projection)
+
+        self._2d_visualizations["tractogram"] = projections
+        return projections
+
+    def _build_roi_rgba_volume(self, volume, color):
+        """Create an RGBA-style colour volume for a single ROI.
+
+        Parameters
+        ----------
+        volume : ndarray
+            The binary ROI volume.
+        color : tuple of float
+            RGB tuple in [0, 1] applied to occupied voxels.
+
+        Returns
+        -------
+        ndarray
+            Volume of shape ``(*volume.shape, 3)`` containing the colour.
+        """
+        rgba = np.zeros((*volume.shape, 3), dtype=np.float32)
+        mask = volume != 0
+        if np.any(mask):
+            rgba[mask, :3] = color
+        return rgba
+
+    @property
+    def t1_2d_visualizations(self):
+        """Return the 2D T1 visualization list."""
+        return self._2d_visualizations["t1"]
+
+    @property
+    def roi_2d_visualizations(self):
+        """Return the 2D ROI visualization list."""
+        return self._2d_visualizations["roi"]
+
+    @property
+    def streamlines_2d_visualizations(self):
+        """Return the 2D streamline projection list."""
+        return self._2d_visualizations["tractogram"] or []
 
     def visualize_mesh(self):
         """Build the mesh actor for the current mesh/texture pair.
@@ -375,7 +514,7 @@ class VisualizationManager:
             actor.visible = not actor.visible
 
     def show_t1_slices(self, x, y, z):
-        """Show the T1 slices.
+        """Show the T1 slices on every active T1/ROI/projection actor.
 
         Parameters
         ----------
@@ -386,22 +525,27 @@ class VisualizationManager:
         z : int
             The Z slice index.
         """
-        if not self._visualizations["t1"]:
-            return
         state_manager.t1_state = [x, y, z]
-        show_slices(self._visualizations["t1"][0], state_manager.t1_state)
+        if self._visualizations["t1"]:
+            show_slices(self._visualizations["t1"][0], state_manager.t1_state)
+        if self._2d_visualizations["t1"]:
+            show_slices(self._2d_visualizations["t1"][0], state_manager.t1_state)
+        for roi_slicer in self._2d_visualizations["roi"]:
+            show_slices(roi_slicer, np.asarray(state_manager.t1_state) + 0.1)
+        for projection in self.streamlines_2d_visualizations:
+            show_slices(projection, state_manager.t1_state)
 
     def toggle_t1_slice_visibility(self, x, y, z):
-        """Toggle the visibility of the T1 slices.
+        """Toggle the visibility of the T1 slices in 3D mode.
 
         Parameters
         ----------
         x : int
-            The X slice index.
+            Whether the X slice is visible.
         y : int
-            The Y slice index.
+            Whether the Y slice is visible.
         z : int
-            The Z slice index.
+            Whether the Z slice is visible.
         """
         if not self._visualizations["t1"]:
             return
@@ -409,6 +553,32 @@ class VisualizationManager:
         set_group_visibility(
             self._visualizations["t1"][0], state_manager.t1_slice_visibility
         )
+
+    def toggle_t1_slice_visibility_2d(self, x, y, z):
+        """Toggle the visibility of the T1 slices in 2D mode.
+
+        Updates the 2D T1 actor as well as all per-ROI 2D slicers and
+        streamline projections so that exactly one axis is shown.
+
+        Parameters
+        ----------
+        x : int
+            Whether the X slice is visible.
+        y : int
+            Whether the Y slice is visible.
+        z : int
+            Whether the Z slice is visible.
+        """
+        state_manager.t1_slice_visibility_2d = [x, y, z]
+        if self._2d_visualizations["t1"]:
+            set_group_visibility(
+                self._2d_visualizations["t1"][0],
+                state_manager.t1_slice_visibility_2d,
+            )
+        for roi_slicer in self._2d_visualizations["roi"]:
+            set_group_visibility(roi_slicer, state_manager.t1_slice_visibility_2d)
+        for projection in self.streamlines_2d_visualizations:
+            set_group_visibility(projection, state_manager.t1_slice_visibility_2d)
 
     @property
     def t1_is_visible(self):

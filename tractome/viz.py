@@ -128,28 +128,46 @@ def create_mesh(mesh_obj, *, texture=None, mode="photographic"):
 
 
 def create_streamlines_projection(streamlines, colors, slice_values):
+    """Project a streamline bundle onto each principal slice plane.
+
+    Parameters
+    ----------
+    streamlines : Sequence[ndarray]
+        The streamlines to project.
+    colors : tuple or ndarray
+        Per-line colour shared by all three projections.
+    slice_values : tuple of int
+        Current ``(x, y, z)`` slice indices used to position each plane.
+
+    Returns
+    -------
+    Group
+        Group actor holding the X, Y, and Z plane projections.
+    """
+    thickness = 3
+    outline_thickness = 1.0
     z_projection = actor.line_projection(
         streamlines,
         plane=(0, 0, -1, slice_values[2]),
         colors=colors,
-        thickness=1,
-        outline_thickness=0.5,
+        thickness=thickness,
+        outline_thickness=outline_thickness,
         lift=-4.0,
     )
     y_projection = actor.line_projection(
         streamlines,
         plane=(0, -1, 0, slice_values[1]),
         colors=colors,
-        thickness=1,
-        outline_thickness=0.5,
+        thickness=thickness,
+        outline_thickness=outline_thickness,
         lift=-4.0,
     )
     x_projection = actor.line_projection(
         streamlines,
         plane=(-1, 0, 0, slice_values[0]),
         colors=colors,
-        thickness=1,
-        outline_thickness=0.5,
+        thickness=thickness,
+        outline_thickness=outline_thickness,
         lift=-4.0,
     )
 

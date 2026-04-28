@@ -1,8 +1,10 @@
-from PySide6.QtCore import QSize, Qt
+from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import QAction, QIcon
 from PySide6.QtWidgets import (
+    QButtonGroup,
     QFrame,
     QGridLayout,
+    QHBoxLayout,
     QLabel,
     QMenu,
     QPushButton,
@@ -15,6 +17,91 @@ from PySide6.QtWidgets import (
 from tractome.mem import input_manager, state_manager, visualization_manager
 from tractome.ui._input_section import RoiInputWidget
 from tractome.ui._paths import ICONS_PATH
+
+
+class ViewModeWidget(QFrame):
+    """Bundle Identification panel with a 3D / 2D scene toggle."""
+
+    view_mode_changed = Signal(str)
+
+    def __init__(self, *, parent=None):
+        """Build the view-mode toggle widget.
+
+        Parameters
+        ----------
+        parent : QWidget, optional
+            The parent widget.
+        """
+        super().__init__(parent)
+        self.setObjectName("viewModeWidget")
+
+        self.main_layout = QVBoxLayout(self)
+        self.main_layout.setContentsMargins(8, 8, 8, 8)
+        self.main_layout.setSpacing(8)
+
+        self.title = QLabel("Bundle identification")
+        self.title.setObjectName("viewModeTitle")
+        self.main_layout.addWidget(self.title)
+
+        toggle_row = QHBoxLayout()
+        toggle_row.setSpacing(0)
+        toggle_row.setContentsMargins(0, 0, 0, 0)
+
+        self._button_group = QButtonGroup(self)
+        self._button_group.setExclusive(True)
+
+        self.btn_3d = QPushButton("3D")
+        self.btn_3d.setObjectName("viewModeButton3D")
+        self.btn_3d.setProperty("class", "viewModeButton")
+        self.btn_3d.setCheckable(True)
+        self.btn_3d.setChecked(True)
+        self.btn_3d.setCursor(Qt.PointingHandCursor)
+        self.btn_3d.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self._button_group.addButton(self.btn_3d)
+        toggle_row.addWidget(self.btn_3d)
+
+        self.btn_2d = QPushButton("2D")
+        self.btn_2d.setObjectName("viewModeButton2D")
+        self.btn_2d.setProperty("class", "viewModeButton")
+        self.btn_2d.setCheckable(True)
+        self.btn_2d.setCursor(Qt.PointingHandCursor)
+        self.btn_2d.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self._button_group.addButton(self.btn_2d)
+        toggle_row.addWidget(self.btn_2d)
+
+        self.main_layout.addLayout(toggle_row)
+
+        self.btn_3d.clicked.connect(lambda: self._on_mode_clicked("3D"))
+        self.btn_2d.clicked.connect(lambda: self._on_mode_clicked("2D"))
+
+    def _on_mode_clicked(self, mode):
+        """Emit ``view_mode_changed`` only when the active mode actually flips.
+
+        Parameters
+        ----------
+        mode : str
+            Either ``"3D"`` or ``"2D"``.
+        """
+        if mode == "3D" and not self.btn_3d.isChecked():
+            self.btn_3d.setChecked(True)
+        if mode == "2D" and not self.btn_2d.isChecked():
+            self.btn_2d.setChecked(True)
+        self.view_mode_changed.emit(mode)
+
+    def set_mode(self, mode):
+        """Update the toggle's checked state without emitting a signal.
+
+        Parameters
+        ----------
+        mode : str
+            Either ``"3D"`` or ``"2D"``.
+        """
+        self.btn_3d.blockSignals(True)
+        self.btn_2d.blockSignals(True)
+        self.btn_3d.setChecked(mode == "3D")
+        self.btn_2d.setChecked(mode == "2D")
+        self.btn_3d.blockSignals(False)
+        self.btn_2d.blockSignals(False)
 
 
 class ClustersWidget(QFrame):
@@ -229,6 +316,9 @@ class LeftSectionWidget(QFrame):
         self.main_layout.setContentsMargins(8, 8, 8, 8)
         self.main_layout.setSpacing(10)
 
+        self.view_mode_widget = ViewModeWidget(parent=self)
+        self.main_layout.addWidget(self.view_mode_widget)
+
         self.clusters_box = ClustersWidget(parent=self)
         self.main_layout.addWidget(self.clusters_box)
 
@@ -238,9 +328,11 @@ class LeftSectionWidget(QFrame):
         self.main_layout.addStretch()
 
     def update_controls_for_visualization(self):
-        """Show/hide controls depending on visualization type."""
+        """Show/hide controls depending on visualization type and view mode."""
+        is_3d = state_manager.view_mode == "3D"
         has_tractogram_input = input_manager.has_tractogram
-        self.clusters_box.setVisible(has_tractogram_input)
+        self.clusters_box.setVisible(is_3d and has_tractogram_input)
+        self.roi_input_widget.setVisible(is_3d)
 
         if has_tractogram_input:
             self._sync_clusters_from_latest_state()
