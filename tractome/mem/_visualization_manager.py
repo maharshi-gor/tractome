@@ -58,6 +58,8 @@ class VisualizationManager:
         self._roi_colormap = distinguishable_colormap()
         self._roi_colors = {}
         self._roi_visibility = {}
+        self._roi_applied = {}
+        self._roi_negated = {}
 
     def visualize_t1(self):
         """Visualize the T1 image.
@@ -550,6 +552,68 @@ class VisualizationManager:
             return True
         return bool(self._visualizations["roi"][index].visible)
 
+    def toggle_roi_applied_at(self, index):
+        """Toggle whether the ROI at ``index`` participates in the filter.
+
+        Parameters
+        ----------
+        index : int
+            Index into the provided ROI list whose applied flag is flipped.
+        """
+        if index < 0 or index >= len(input_manager.provided_roi_paths):
+            return
+        path = input_manager.provided_roi_paths[index]
+        self._roi_applied[path] = not self._roi_applied.get(path, True)
+
+    def is_roi_applied_at(self, index):
+        """Return whether the ROI at ``index`` contributes to the filter.
+
+        Parameters
+        ----------
+        index : int
+            Index into the provided ROI list.
+
+        Returns
+        -------
+        bool
+            True if the ROI is applied (default), False otherwise.
+        """
+        if index < 0 or index >= len(input_manager.provided_roi_paths):
+            return True
+        path = input_manager.provided_roi_paths[index]
+        return bool(self._roi_applied.get(path, True))
+
+    def toggle_roi_negated_at(self, index):
+        """Toggle whether the ROI at ``index`` is negated in the filter.
+
+        Parameters
+        ----------
+        index : int
+            Index into the provided ROI list whose negation flag is flipped.
+        """
+        if index < 0 or index >= len(input_manager.provided_roi_paths):
+            return
+        path = input_manager.provided_roi_paths[index]
+        self._roi_negated[path] = not self._roi_negated.get(path, False)
+
+    def is_roi_negated_at(self, index):
+        """Return whether the ROI at ``index`` is negated in the filter.
+
+        Parameters
+        ----------
+        index : int
+            Index into the provided ROI list.
+
+        Returns
+        -------
+        bool
+            True if the ROI mask is inverted before AND-combining, else False.
+        """
+        if index < 0 or index >= len(input_manager.provided_roi_paths):
+            return False
+        path = input_manager.provided_roi_paths[index]
+        return bool(self._roi_negated.get(path, False))
+
     def set_roi_opacity(self, value):
         """Set opacity for every ROI actor from a 0–100 slider value.
 
@@ -586,18 +650,21 @@ class VisualizationManager:
         return self._visualizations["roi"]
 
     def apply_roi_filter(self):
-        """Filter the tractogram streamlines through every loaded ROI.
+        """Filter the tractogram streamlines using positive and negated ROIs.
 
-        Combines the loaded ROI volumes with a logical AND, transforms the
-        resulting mask into world coordinates, and stores the streamline
-        ids that pass the filter on the latest cluster state. The cluster
-        state is also invalidated so the next call to
+        Positive ROIs (the default) are AND-combined and the streamlines
+        that pass through the resulting mask are kept. Negated ROIs are
+        OR-combined and any streamline touching that combined mask is then
+        subtracted from the kept set. When every applied ROI is negated,
+        the kept set starts as all streamlines before the subtraction.
+
+        The cluster state is invalidated so the next call to
         :meth:`_apply_tractogram_states` re-clusters on the filtered set.
-        Clears the filter when no ROI is loaded.
+        Clears the filter when no ROI is loaded or none is applied.
 
         The reference shape and affine come from the T1 image when one is
         loaded (matching the legacy ``app.py`` pipeline) and otherwise
-        fall back to the first ROI's own shape and affine.
+        fall back to the first applied ROI's own shape and affine.
 
         Returns
         -------
@@ -621,31 +688,77 @@ class VisualizationManager:
 
         sft, _, _, _ = input_manager.get_current_tractogram()
 
-        roi_volumes = []
+        positive_volumes = []
+        negative_volumes = []
+        first_applied_index = None
         for index in range(len(input_manager.provided_roi_paths)):
+            if not self.is_roi_applied_at(index):
+                continue
             roi_volume, _roi_affine, _, _ = input_manager.get_roi_at(index)
-            roi_volumes.append(roi_volume)
+            if first_applied_index is None:
+                first_applied_index = index
+            if self.is_roi_negated_at(index):
+                negative_volumes.append(roi_volume)
+            else:
+                positive_volumes.append(roi_volume)
+
+        if first_applied_index is None:
+            if latest_state.filtered_streamline_ids is None:
+                return False
+            latest_state.filtered_streamline_ids = None
+            latest_state.tractogram_states = None
+            return True
 
         if input_manager.has_t1:
             t1_volume, reference_affine, _, _ = input_manager.get_current_t1()
             reference_shape = t1_volume.shape
         else:
-            reference_shape = roi_volumes[0].shape
-            _, reference_affine, _, _ = input_manager.get_roi_at(0)
+            _, reference_affine, _, _ = input_manager.get_roi_at(first_applied_index)
+            reference_shape = (positive_volumes or negative_volumes)[0].shape
 
-        try:
-            combined_mask = calculate_filter(
-                roi_volumes, reference_shape=reference_shape
+        if positive_volumes:
+            try:
+                positive_mask = calculate_filter(
+                    positive_volumes, reference_shape=reference_shape
+                )
+            except ValueError:
+                return False
+            world_mask, origin = transform_roi_to_world_grid(
+                positive_mask, reference_affine
             )
-        except ValueError:
-            return False
+            kept_ids = {
+                int(i)
+                for i in filter_streamline_ids(
+                    sft.streamlines, world_mask, origin=origin
+                )
+            }
+        else:
+            kept_ids = set(range(len(sft.streamlines)))
 
-        world_mask, origin = transform_roi_to_world_grid(
-            combined_mask, reference_affine
+        if negative_volumes:
+            negative_mask = np.zeros(reference_shape, dtype=bool)
+            matched = 0
+            for volume in negative_volumes:
+                volume_mask = np.asarray(volume).astype(bool, copy=False)
+                if volume_mask.shape != reference_shape:
+                    continue
+                negative_mask |= volume_mask
+                matched += 1
+            if matched:
+                world_mask, origin = transform_roi_to_world_grid(
+                    negative_mask, reference_affine
+                )
+                excluded_ids = {
+                    int(i)
+                    for i in filter_streamline_ids(
+                        sft.streamlines, world_mask, origin=origin
+                    )
+                }
+                kept_ids -= excluded_ids
+
+        latest_state.filtered_streamline_ids = np.asarray(
+            sorted(kept_ids), dtype=np.int32
         )
-
-        kept_ids = filter_streamline_ids(sft.streamlines, world_mask, origin=origin)
-        latest_state.filtered_streamline_ids = np.asarray(kept_ids, dtype=np.int32)
         latest_state.tractogram_states = None
         return True
 

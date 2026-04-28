@@ -555,15 +555,26 @@ QCheckBox::indicator:checked {
     font-size: 10pt;
 }
 
-#roiVisibilityButton {
+QToolButton#roiVisibilityButton,
+QToolButton#roiApplyButton,
+QToolButton#roiNegateButton,
+QToolButton#roiRemoveButton {
     padding: 0;
-    border: none;
+    margin: 0;
+    color: #ffffff;
+    background-color: #575757;
+    border: 1px solid #747474;
+    border-radius: 6px;
 }
 
-#roiRemoveButton {
-    padding: 0;
-    border: none;
-    color: #ffffff;
+QToolButton#roiVisibilityButton:hover,
+QToolButton#roiApplyButton:hover,
+QToolButton#roiNegateButton:hover,
+QToolButton#roiRemoveButton:hover {
+    border-color: #8a8a8a;
+}
+
+QToolButton#roiRemoveButton {
     font-size: 13pt;
     font-weight: bold;
 }

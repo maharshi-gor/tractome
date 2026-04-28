@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QSizePolicy,
     QSlider,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -919,6 +920,18 @@ class RoiInputWidget(QFrame):
 
         self.refresh_rois()
 
+    def resizeEvent(self, event):
+        """Re-elide ROI row labels when the widget width changes.
+
+        Parameters
+        ----------
+        event : QResizeEvent
+            The resize event delivered by Qt.
+        """
+        super().resizeEvent(event)
+        for index in range(len(self._row_widgets)):
+            self._sync_row_appearance(index)
+
     def _on_upload_clicked(self):
         """Upload an ROI NIfTI file and add it to the input manager."""
         file_path = open_file_dialog(
@@ -956,16 +969,52 @@ class RoiInputWidget(QFrame):
         self.roi_opacity_changed.emit(value)
 
     def _on_visibility_clicked(self, index):
-        """Toggle visibility for the ROI at ``index``."""
+        """Toggle scene visibility of the ROI at ``index``.
+
+        Parameters
+        ----------
+        index : int
+            Index of the ROI row whose visibility should flip.
+        """
         visualization_manager.toggle_roi_visibility_at(index)
-        self._sync_visibility_appearance(index)
+        self._sync_row_appearance(index)
         self.roi_visibility_changed.emit()
+
+    def _on_apply_clicked(self, index):
+        """Toggle whether the ROI at ``index`` contributes to the filter.
+
+        Parameters
+        ----------
+        index : int
+            Index of the ROI row whose applied flag should flip.
+        """
+        if index < 0:
+            return
+        visualization_manager.toggle_roi_applied_at(index)
+        self._sync_row_appearance(index)
+        self.rois_changed.emit()
+
+    def _on_negate_clicked(self, index):
+        """Toggle filter negation for the ROI at ``index``.
+
+        Parameters
+        ----------
+        index : int
+            Index of the ROI row whose negation flag should flip.
+        """
+        if index < 0:
+            return
+        visualization_manager.toggle_roi_negated_at(index)
+        self._sync_row_appearance(index)
+        self.rois_changed.emit()
 
     def _on_remove_clicked(self, index):
         """Remove the ROI at ``index`` from the input manager.
 
-        Scene cleanup is handled by the ``rois_changed`` signal listener,
-        which rebuilds the ROI visualization from the new input list.
+        Parameters
+        ----------
+        index : int
+            Index of the ROI row to remove.
         """
         if index < 0:
             return
@@ -973,16 +1022,94 @@ class RoiInputWidget(QFrame):
         self.rois_changed.emit()
         self.refresh_rois()
 
-    def _sync_visibility_appearance(self, index):
-        """Dim the eye icon when the ROI is hidden."""
+    def _sync_row_appearance(self, index):
+        """Dim each per-row button to reflect its current ROI state.
+
+        Parameters
+        ----------
+        index : int
+            Index of the ROI row to refresh.
+        """
         if index < 0 or index >= len(self._row_widgets):
             return
         row = self._row_widgets[index]
-        is_visible = visualization_manager.is_roi_visible_at(index)
-        row["effect"].setOpacity(1.0 if is_visible else 0.42)
+        row["visibility_effect"].setOpacity(
+            1.0 if visualization_manager.is_roi_visible_at(index) else 0.42
+        )
+        row["apply_effect"].setOpacity(
+            1.0 if visualization_manager.is_roi_applied_at(index) else 0.42
+        )
+        row["negate_effect"].setOpacity(
+            1.0 if visualization_manager.is_roi_negated_at(index) else 0.42
+        )
+        width = row["label"].width()
+        if width > 0:
+            row["label"].setText(
+                row["label"]
+                .fontMetrics()
+                .elidedText(row["full_name"], Qt.ElideRight, width)
+            )
+        else:
+            row["label"].setText(row["full_name"])
+
+    def _make_icon_button(self, *, object_name, icon_path=None, text="", tooltip=""):
+        """Create a small square icon button used inside an ROI row.
+
+        ``QToolButton`` is used instead of ``QPushButton`` because the latter
+        reserves font-metric space even for icon-only buttons, which pushes
+        the icon below the geometric center.
+
+        Parameters
+        ----------
+        object_name : str
+            Qt object name applied to the button for QSS targeting.
+        icon_path : str or None, optional
+            Filesystem path to an SVG icon. If None, ``text`` is used instead.
+        text : str, optional
+            Fallback label drawn on the button when ``icon_path`` is None.
+        tooltip : str, optional
+            Hover tooltip describing the action.
+
+        Returns
+        -------
+        tuple[QToolButton, QGraphicsOpacityEffect]
+            The button and its attached opacity effect for dimming.
+        """
+        button = QToolButton()
+        button.setObjectName(object_name)
+        if icon_path is not None:
+            button.setIcon(QIcon(icon_path))
+            button.setIconSize(QSize(16, 16))
+            button.setToolButtonStyle(Qt.ToolButtonIconOnly)
+        elif text:
+            button.setText(text)
+            button.setToolButtonStyle(Qt.ToolButtonTextOnly)
+        button.setAutoRaise(True)
+        button.setFixedSize(28, 28)
+        button.setCursor(Qt.PointingHandCursor)
+        if tooltip:
+            button.setToolTip(tooltip)
+        effect = QGraphicsOpacityEffect(button)
+        button.setGraphicsEffect(effect)
+        return button, effect
 
     def _build_row(self, index, name, color):
-        """Build a single ROI row with swatch, label, visibility, remove."""
+        """Build a single ROI row.
+
+        Parameters
+        ----------
+        index : int
+            Initial position of the row in the widget list.
+        name : str
+            ROI display name (typically the file basename).
+        color : tuple of float or None
+            RGB color (each in [0, 1]) used for the swatch.
+
+        Returns
+        -------
+        dict
+            Row metadata used by ``refresh_rois`` and the sync helpers.
+        """
         row_widget = QWidget()
         row_widget.setObjectName("roiRow")
         row_layout = QHBoxLayout(row_widget)
@@ -1002,16 +1129,15 @@ class RoiInputWidget(QFrame):
         label = QLabel(name)
         label.setObjectName("roiRowLabel")
         label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        row_layout.addWidget(label)
+        label.setMinimumWidth(40)
+        label.setToolTip(name)
+        row_layout.addWidget(label, 1)
 
-        visibility_button = QPushButton("")
-        visibility_button.setObjectName("roiVisibilityButton")
-        visibility_button.setIcon(QIcon(str(ICONS_PATH / "eye.svg")))
-        visibility_button.setIconSize(QSize(16, 16))
-        visibility_button.setFixedSize(28, 28)
-        visibility_button.setCursor(Qt.PointingHandCursor)
-        visibility_effect = QGraphicsOpacityEffect(visibility_button)
-        visibility_button.setGraphicsEffect(visibility_effect)
+        visibility_button, visibility_effect = self._make_icon_button(
+            object_name="roiVisibilityButton",
+            icon_path=str(ICONS_PATH / "eye.svg"),
+            tooltip="Show/hide ROI",
+        )
         visibility_button.clicked.connect(
             lambda _checked=False, w=row_widget: self._on_visibility_clicked(
                 self._row_index(w)
@@ -1019,10 +1145,35 @@ class RoiInputWidget(QFrame):
         )
         row_layout.addWidget(visibility_button)
 
-        remove_button = QPushButton("×")
-        remove_button.setObjectName("roiRemoveButton")
-        remove_button.setFixedSize(28, 28)
-        remove_button.setCursor(Qt.PointingHandCursor)
+        apply_button, apply_effect = self._make_icon_button(
+            object_name="roiApplyButton",
+            icon_path=str(ICONS_PATH / "check.svg"),
+            tooltip="Apply ROI as a streamline filter",
+        )
+        apply_button.clicked.connect(
+            lambda _checked=False, w=row_widget: self._on_apply_clicked(
+                self._row_index(w)
+            )
+        )
+        row_layout.addWidget(apply_button)
+
+        negate_button, negate_effect = self._make_icon_button(
+            object_name="roiNegateButton",
+            icon_path=str(ICONS_PATH / "negation.svg"),
+            tooltip="Negate ROI in the filter",
+        )
+        negate_button.clicked.connect(
+            lambda _checked=False, w=row_widget: self._on_negate_clicked(
+                self._row_index(w)
+            )
+        )
+        row_layout.addWidget(negate_button)
+
+        remove_button, _remove_effect = self._make_icon_button(
+            object_name="roiRemoveButton",
+            text="✕",
+            tooltip="Remove ROI",
+        )
         remove_button.clicked.connect(
             lambda _checked=False, w=row_widget: self._on_remove_clicked(
                 self._row_index(w)
@@ -1033,9 +1184,14 @@ class RoiInputWidget(QFrame):
         return {
             "widget": row_widget,
             "label": label,
+            "full_name": name,
             "swatch": swatch,
             "visibility_button": visibility_button,
-            "effect": visibility_effect,
+            "visibility_effect": visibility_effect,
+            "apply_button": apply_button,
+            "apply_effect": apply_effect,
+            "negate_button": negate_button,
+            "negate_effect": negate_effect,
             "remove_button": remove_button,
         }
 
@@ -1069,7 +1225,7 @@ class RoiInputWidget(QFrame):
                 self._row_widgets.append(row)
 
         for index in range(len(self._row_widgets)):
-            self._sync_visibility_appearance(index)
+            self._sync_row_appearance(index)
 
         has_roi = bool(roi_paths)
         self._roi_controls.setVisible(has_roi)
