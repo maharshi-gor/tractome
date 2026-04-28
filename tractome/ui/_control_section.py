@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
 )
 
 from tractome.mem import input_manager, state_manager, visualization_manager
+from tractome.ui._input_section import RoiInputWidget
 from tractome.ui._paths import ICONS_PATH
 
 
@@ -230,6 +231,9 @@ class LeftSectionWidget(QFrame):
 
         self.clusters_box = ClustersWidget(parent=self)
         self.main_layout.addWidget(self.clusters_box)
+
+        self.roi_input_widget = RoiInputWidget(parent=self)
+        self.main_layout.addWidget(self.roi_input_widget)
 
         self.main_layout.addStretch()
 

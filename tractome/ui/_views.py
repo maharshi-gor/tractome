@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from tractome.mem import input_manager, visualization_manager
+from tractome.mem import input_manager, state_manager, visualization_manager
 from tractome.ui._control_section import LeftSectionWidget
 from tractome.ui._input_section import RightSectionWidget
 from tractome.ui._paths import IMAGES_PATH
@@ -124,6 +124,13 @@ class InteractionScreen(QWidget):
         self._right_section.parcel_input_widget.parcel_size_changed.connect(
             self._on_parcel_size_changed
         )
+        self._left_section.roi_input_widget.rois_changed.connect(self._on_rois_changed)
+        self._left_section.roi_input_widget.roi_visibility_changed.connect(
+            self._on_roi_visibility_changed
+        )
+        self._left_section.roi_input_widget.roi_opacity_changed.connect(
+            self._on_roi_opacity_changed
+        )
 
         main_layout.addWidget(self._left_section, 1)
         main_layout.addWidget(self._center_section, 3)
@@ -200,6 +207,45 @@ class InteractionScreen(QWidget):
     def _on_parcel_size_changed(self, value):
         """Apply parcel point size from the slider (labeled Opacity in the UI)."""
         visualization_manager.set_parcel_size(value)
+        self._center_section.show_manager.render()
+
+    def _on_rois_changed(self):
+        """Rebuild the ROI visualization and re-filter streamlines.
+
+        Also re-clusters the tractogram on the filtered set when the
+        filter changes so the scene reflects the new ROI selection.
+        """
+        roi_viz = list(visualization_manager.roi_visualizations)
+        if roi_viz:
+            self.remove_visualization(roi_viz, visualization_type="roi")
+        roi_vis = visualization_manager.visualize_rois()
+        if roi_vis:
+            self.add_visualization(roi_vis, visualization_type="roi")
+        self._left_section.roi_input_widget.refresh_rois()
+
+        if visualization_manager.apply_roi_filter():
+            tractogram_viz = list(visualization_manager.tractogram_visualizations or [])
+            if tractogram_viz:
+                self.remove_visualization(
+                    tractogram_viz, visualization_type="tractogram"
+                )
+            nb_clusters = (
+                state_manager.get_latest_state().nb_clusters
+                if state_manager.has_states()
+                else 100
+            )
+            tractogram_vis = visualization_manager.visualize_tractogram(
+                nb_clusters=nb_clusters
+            )
+            if tractogram_vis is not None:
+                self.add_visualization(tractogram_vis, visualization_type="tractogram")
+
+    def _on_roi_visibility_changed(self):
+        """Re-render after toggling per-ROI visibility."""
+        self._center_section.show_manager.render()
+
+    def _on_roi_opacity_changed(self, _value):
+        """Re-render after the ROI opacity slider moves."""
         self._center_section.show_manager.render()
 
     def add_visualization(self, visualizations, visualization_type="unknown"):

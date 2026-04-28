@@ -820,6 +820,265 @@ class ParcelInputWidget(QFrame):
         self._sync_parcel_visibility_appearance()
 
 
+class RoiInputWidget(QFrame):
+    """Widget for ROI inputs (NIfTI), supporting multiple ROIs.
+
+    The header exposes an upload button and an add (+) placeholder button.
+    A global opacity slider is shown only when at least one ROI is loaded,
+    and each ROI is represented by a row with a color swatch, the file
+    name, a visibility toggle, and a remove button.
+    """
+
+    rois_changed = Signal()
+    roi_visibility_changed = Signal()
+    roi_opacity_changed = Signal(int)
+
+    def __init__(self, *, parent=None):
+        super().__init__(parent)
+        self.setObjectName("roiInputWidget")
+
+        self.main_layout = QVBoxLayout(self)
+        self.main_layout.setContentsMargins(8, 8, 8, 8)
+        self.main_layout.setSpacing(8)
+
+        self.title = QLabel("ROI")
+        self.title.setObjectName("roiTitle")
+        self.main_layout.addWidget(self.title)
+
+        std_h = 38
+
+        self.header_row = QHBoxLayout()
+        self.header_row.setSpacing(8)
+        self.header_row.setContentsMargins(8, 0, 8, 0)
+
+        self.upload_button = QPushButton("")
+        self.upload_button.setIcon(QIcon(str(ICONS_PATH / "upload.svg")))
+        self.upload_button.setIconSize(QSize(16, 16))
+        self.upload_button.setObjectName("uploadButton")
+        self.upload_button.setFixedSize(std_h, std_h)
+        self.upload_button.setToolTip("Upload ROI from file")
+        self.header_row.addWidget(self.upload_button)
+
+        self.add_button = QPushButton("+")
+        self.add_button.setObjectName("roiAddButton")
+        self.add_button.setFixedSize(std_h, std_h)
+        self.add_button.setToolTip("Add a new ROI")
+        self.header_row.addWidget(self.add_button)
+
+        self.header_row.addStretch()
+        self.main_layout.addLayout(self.header_row)
+
+        self._roi_controls = QWidget()
+        self._roi_controls.setObjectName("roiExtraControls")
+        roi_controls_layout = QVBoxLayout(self._roi_controls)
+        roi_controls_layout.setContentsMargins(0, 0, 0, 0)
+        roi_controls_layout.setSpacing(8)
+
+        opacity_header = QHBoxLayout()
+        self.opacity_label = QLabel("Opacity")
+        self.opacity_label.setObjectName("roiOpacityLabel")
+        opacity_header.addWidget(self.opacity_label)
+        opacity_header.addStretch()
+        roi_controls_layout.addLayout(opacity_header)
+
+        opacity_slider_row = QHBoxLayout()
+        self.opacity_min_label = QLabel("0")
+        self.opacity_min_label.setObjectName("roiOpacityTickLabel")
+        self.opacity_slider = QSlider(Qt.Horizontal)
+        self.opacity_slider.setObjectName("roiOpacitySlider")
+        self.opacity_slider.setRange(0, 100)
+        self.opacity_slider.setValue(state_manager.roi_opacity)
+        self.opacity_max_label = QLabel("100")
+        self.opacity_max_label.setObjectName("roiOpacityTickLabel")
+        opacity_slider_row.addWidget(self.opacity_min_label)
+        opacity_slider_row.addWidget(self.opacity_slider)
+        opacity_slider_row.addWidget(self.opacity_max_label)
+        roi_controls_layout.addLayout(opacity_slider_row)
+
+        self._rows_container = QWidget()
+        self._rows_container.setObjectName("roiRowsContainer")
+        self._rows_layout = QVBoxLayout(self._rows_container)
+        self._rows_layout.setContentsMargins(0, 0, 0, 0)
+        self._rows_layout.setSpacing(4)
+        roi_controls_layout.addWidget(self._rows_container)
+
+        self.main_layout.addWidget(self._roi_controls)
+
+        self._row_widgets = []
+
+        self.upload_button.setCursor(Qt.PointingHandCursor)
+        self.add_button.setCursor(Qt.PointingHandCursor)
+        self.upload_button.clicked.connect(self._on_upload_clicked)
+        self.add_button.clicked.connect(self._on_add_clicked)
+        self.opacity_slider.valueChanged.connect(self._on_opacity_changed)
+
+        self._poll_timer = QTimer(self)
+        self._poll_timer.setInterval(500)
+        self._poll_timer.timeout.connect(self.refresh_rois)
+        self._poll_timer.start()
+
+        self.refresh_rois()
+
+    def _on_upload_clicked(self):
+        """Upload an ROI NIfTI file and add it to the input manager."""
+        file_path = open_file_dialog(
+            parent=self,
+            title="Select an ROI file",
+            file_filter=(
+                "NIfTI Files (*.nii *.nii.gz);; NII Files (*.nii);; "
+                "NII.GZ Files (*.nii.gz);; All Files (*.*)"
+            ),
+        )
+        if not file_path:
+            return
+        input_manager.add_roi(file_path)
+        self.rois_changed.emit()
+        self.refresh_rois()
+
+    def _on_add_clicked(self):
+        """Add another ROI from disk.
+
+        Mirrors the upload action so users can keep stacking ROIs without
+        leaving the panel. A future revision can replace this with an
+        interactive ROI creation dialog.
+        """
+        self._on_upload_clicked()
+
+    def _on_opacity_changed(self, value):
+        """Update opacity for every ROI actor.
+
+        Parameters
+        ----------
+        value : int
+            The slider value (0-100).
+        """
+        visualization_manager.set_roi_opacity(value)
+        self.roi_opacity_changed.emit(value)
+
+    def _on_visibility_clicked(self, index):
+        """Toggle visibility for the ROI at ``index``."""
+        visualization_manager.toggle_roi_visibility_at(index)
+        self._sync_visibility_appearance(index)
+        self.roi_visibility_changed.emit()
+
+    def _on_remove_clicked(self, index):
+        """Remove the ROI at ``index`` from the input manager.
+
+        Scene cleanup is handled by the ``rois_changed`` signal listener,
+        which rebuilds the ROI visualization from the new input list.
+        """
+        if index < 0:
+            return
+        input_manager.remove_roi(index)
+        self.rois_changed.emit()
+        self.refresh_rois()
+
+    def _sync_visibility_appearance(self, index):
+        """Dim the eye icon when the ROI is hidden."""
+        if index < 0 or index >= len(self._row_widgets):
+            return
+        row = self._row_widgets[index]
+        is_visible = visualization_manager.is_roi_visible_at(index)
+        row["effect"].setOpacity(1.0 if is_visible else 0.42)
+
+    def _build_row(self, index, name, color):
+        """Build a single ROI row with swatch, label, visibility, remove."""
+        row_widget = QWidget()
+        row_widget.setObjectName("roiRow")
+        row_layout = QHBoxLayout(row_widget)
+        row_layout.setContentsMargins(0, 0, 0, 0)
+        row_layout.setSpacing(8)
+
+        swatch = QLabel()
+        swatch.setObjectName("roiSwatch")
+        swatch.setFixedSize(6, 28)
+        if color is not None:
+            r, g, b = (int(round(c * 255)) for c in color)
+            swatch.setStyleSheet(
+                f"background-color: rgb({r}, {g}, {b}); border-radius: 2px;"
+            )
+        row_layout.addWidget(swatch)
+
+        label = QLabel(name)
+        label.setObjectName("roiRowLabel")
+        label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        row_layout.addWidget(label)
+
+        visibility_button = QPushButton("")
+        visibility_button.setObjectName("roiVisibilityButton")
+        visibility_button.setIcon(QIcon(str(ICONS_PATH / "eye.svg")))
+        visibility_button.setIconSize(QSize(16, 16))
+        visibility_button.setFixedSize(28, 28)
+        visibility_button.setCursor(Qt.PointingHandCursor)
+        visibility_effect = QGraphicsOpacityEffect(visibility_button)
+        visibility_button.setGraphicsEffect(visibility_effect)
+        visibility_button.clicked.connect(
+            lambda _checked=False, w=row_widget: self._on_visibility_clicked(
+                self._row_index(w)
+            )
+        )
+        row_layout.addWidget(visibility_button)
+
+        remove_button = QPushButton("×")
+        remove_button.setObjectName("roiRemoveButton")
+        remove_button.setFixedSize(28, 28)
+        remove_button.setCursor(Qt.PointingHandCursor)
+        remove_button.clicked.connect(
+            lambda _checked=False, w=row_widget: self._on_remove_clicked(
+                self._row_index(w)
+            )
+        )
+        row_layout.addWidget(remove_button)
+
+        return {
+            "widget": row_widget,
+            "label": label,
+            "swatch": swatch,
+            "visibility_button": visibility_button,
+            "effect": visibility_effect,
+            "remove_button": remove_button,
+        }
+
+    def _row_index(self, row_widget):
+        """Return the current index of a row widget, or -1 if absent."""
+        for idx, row in enumerate(self._row_widgets):
+            if row["widget"] is row_widget:
+                return idx
+        return -1
+
+    def refresh_rois(self):
+        """Synchronize the row list with input/visualization managers.
+
+        Rows are rebuilt only when the underlying ROI path list changes;
+        otherwise just the visibility indicators are updated to keep the
+        polling timer cheap.
+        """
+        roi_paths = input_manager.provided_roi_paths
+        cached_paths = [row.get("path") for row in self._row_widgets]
+        if cached_paths != roi_paths:
+            for row in self._row_widgets:
+                self._rows_layout.removeWidget(row["widget"])
+                row["widget"].deleteLater()
+            self._row_widgets = []
+
+            for index, path in enumerate(roi_paths):
+                color = visualization_manager.get_roi_color(index)
+                row = self._build_row(index, Path(path).name, color)
+                row["path"] = path
+                self._rows_layout.addWidget(row["widget"])
+                self._row_widgets.append(row)
+
+        for index in range(len(self._row_widgets)):
+            self._sync_visibility_appearance(index)
+
+        has_roi = bool(roi_paths)
+        self._roi_controls.setVisible(has_roi)
+
+        self.opacity_slider.blockSignals(True)
+        self.opacity_slider.setValue(state_manager.roi_opacity)
+        self.opacity_slider.blockSignals(False)
+
+
 class RightSectionWidget(QFrame):
     """Right section container for add-ons and track views."""
 

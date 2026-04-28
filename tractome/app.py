@@ -1,7 +1,7 @@
 from PySide6.QtWidgets import QApplication, QMainWindow, QStackedWidget
 
 from tractome.io import get_file_extension
-from tractome.mem import input_manager, visualization_manager
+from tractome.mem import input_manager, state_manager, visualization_manager
 from tractome.ui import InteractionScreen, StartScreen, load_style_sheet
 
 app = QApplication.instance() or QApplication([])
@@ -146,6 +146,27 @@ class Tractome(QMainWindow):
                 parcel_visualization, visualization_type="parcel"
             )
             self._interaction_screen._right_section.parcel_input_widget.sync_parcel_visibility_button()
+        roi_visualization = visualization_manager.visualize_rois()
+        if roi_visualization:
+            self._interaction_screen.add_visualization(
+                roi_visualization, visualization_type="roi"
+            )
+            self._interaction_screen._left_section.roi_input_widget.refresh_rois()
+
+        if (
+            visualization_manager.apply_roi_filter()
+            and tractogram_visualization is not None
+        ):
+            self._interaction_screen.remove_visualization(
+                tractogram_visualization, visualization_type="tractogram"
+            )
+            tractogram_visualization = visualization_manager.visualize_tractogram(
+                nb_clusters=state_manager.get_latest_state().nb_clusters,
+            )
+            if tractogram_visualization is not None:
+                self._interaction_screen.add_visualization(
+                    tractogram_visualization, visualization_type="tractogram"
+                )
 
     def start(self):
         """Show the main window and start the FURY/Qt loop."""

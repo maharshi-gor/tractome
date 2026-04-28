@@ -45,6 +45,7 @@ class StateManager:
         self.mesh_visible = True
         self.parcel_size = 100
         self.parcel_visible = True
+        self.roi_opacity = 80
 
     def has_states(self):
         """Check if there are any states in the history.

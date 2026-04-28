@@ -7,6 +7,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+import numpy as np
 
 from fury import window
 from fury.lib import (
@@ -186,6 +187,7 @@ class CenterSectionWidget(QFrame):
         if visualization_type == "tractogram":
             self._update_display_info()
             self._keystroke_card.setVisible(True)
+        self._refresh_overlays()
 
     def remove_visualization(self, visualizations, *, visualization_type="unknown"):
         """Remove visualizations from the center section.
@@ -199,6 +201,19 @@ class CenterSectionWidget(QFrame):
         if visualization_type == "tractogram":
             self._update_display_info()
             self._keystroke_card.setVisible(False)
+        self._refresh_overlays()
+
+    def _refresh_overlays(self):
+        """Force the Qt overlays to fully repaint after a scene update.
+
+        The keystroke card sits over the wgpu canvas with a translucent
+        background and its text never changes, so repeated scene frames
+        otherwise leave antialiased ghosts on top of the static labels.
+        Re-raising and updating the widgets clears the accumulated pixels.
+        """
+        for overlay in (self._display_info_widget, self._keystroke_card):
+            overlay.raise_()
+            overlay.update()
 
     def _update_display_info(self):
         """Update display info overlay for latest added visualization."""
@@ -207,7 +222,15 @@ class CenterSectionWidget(QFrame):
         cluster_count = latest_state.nb_clusters
         fibers_count = len(latest_state.streamline_ids)
         if latest_state.filtered_streamline_ids is not None:
-            roi_count = len(latest_state.filtered_streamline_ids)
+            visible_ids = set(
+                np.asarray(latest_state.streamline_ids, dtype=np.int64).tolist()
+            )
+            filtered_ids = set(
+                np.asarray(
+                    latest_state.filtered_streamline_ids, dtype=np.int64
+                ).tolist()
+            )
+            roi_count = len(visible_ids & filtered_ids)
         else:
             roi_count = "N/A"
 

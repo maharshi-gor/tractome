@@ -62,6 +62,7 @@ class InputManager:
             "roi": None,
             "parcel": None,
         }
+        self._loaded_rois = {}
 
     def add_tractogram(self, tractogram):
         """Add a tractogram path and make it the current tractogram.
@@ -310,6 +311,66 @@ class InputManager:
         roi, affine = read_nifti(path)
         self._loaded_inputs["roi"] = (roi, affine, path, idx)
         return self._loaded_inputs["roi"]
+
+    def get_roi_at(self, index):
+        """Return the ROI volume and affine for a given index.
+
+        Parameters
+        ----------
+        index : int
+            Index into the provided ROI path list.
+
+        Returns
+        -------
+        tuple
+            ``(roi_volume, affine, path, index)`` for the requested ROI.
+
+        Raises
+        ------
+        ValueError
+            If ``index`` is out of range.
+        """
+        if index < 0 or index >= len(self._provided_inputs["roi"]):
+            raise ValueError("Invalid ROI index.")
+        path = self._provided_inputs["roi"][index]
+        cached = self._loaded_rois.get(path)
+        if cached is not None:
+            return cached
+        roi, affine = read_nifti(path)
+        loaded = (roi, affine, path, index)
+        self._loaded_rois[path] = loaded
+        return loaded
+
+    def remove_roi(self, index):
+        """Remove an ROI entry at the given index.
+
+        Parameters
+        ----------
+        index : int
+            Index of the ROI to remove.
+        """
+        if index < 0 or index >= len(self._provided_inputs["roi"]):
+            raise ValueError("Invalid ROI index.")
+        path = self._provided_inputs["roi"][index]
+        del self._provided_inputs["roi"][index]
+        self._loaded_rois.pop(path, None)
+
+        n = len(self._provided_inputs["roi"])
+        if n == 0:
+            self._current_inputs["roi"] = -1
+            self._loaded_inputs["roi"] = None
+            return
+        cur = self._current_inputs["roi"]
+        if cur == index:
+            self._current_inputs["roi"] = min(index, n - 1)
+            self._loaded_inputs["roi"] = None
+        elif cur > index:
+            self._current_inputs["roi"] = cur - 1
+
+    @property
+    def provided_roi_paths(self):
+        """Return paths for loaded ROI files."""
+        return list(self._provided_inputs["roi"])
 
     def get_current_parcel(self):
         """Return the current parcel path.

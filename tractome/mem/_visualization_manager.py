@@ -5,12 +5,19 @@ import numpy as np
 
 from fury import distinguishable_colormap
 from fury.actor import set_group_visibility, show_slices
-from tractome.compute import compute_dissimilarity, mkbm_clustering
+from tractome.compute import (
+    calculate_filter,
+    compute_dissimilarity,
+    filter_streamline_ids,
+    mkbm_clustering,
+    transform_roi_to_world_grid,
+)
 from tractome.mem import ClusterState, input_manager, state_manager
 from tractome.viz import (
     create_image_slicer,
     create_mesh,
     create_parcels,
+    create_roi,
     create_streamlines,
     create_streamtube,
 )
@@ -45,9 +52,12 @@ class VisualizationManager:
             "tractogram": None,
             "t1": None,
             "mesh": None,
-            "roi": None,
+            "roi": [],
             "parcel": None,
         }
+        self._roi_colormap = distinguishable_colormap()
+        self._roi_colors = {}
+        self._roi_visibility = {}
 
     def visualize_t1(self):
         """Visualize the T1 image.
@@ -193,6 +203,9 @@ class VisualizationManager:
         """Apply the tractogram states to the visualization."""
         sft, _, _, _ = input_manager.get_current_tractogram()
         latest_state = state_manager.get_latest_state()
+        if input_manager.has_roi and latest_state.filtered_streamline_ids is None:
+            self.apply_roi_filter()
+            latest_state = state_manager.get_latest_state()
         if latest_state.tractogram_states is not None:
             for cluster_id, state_data in latest_state.tractogram_states.items():
                 if not state_data["expanded"]:
@@ -231,6 +244,10 @@ class VisualizationManager:
     def _perform_clustering(self, sft, state):
         """Perform clustering on the tractogram.
 
+        When ``state.filtered_streamline_ids`` is set, clustering is
+        restricted to those filtered IDs so that downstream visualization
+        only shows streamlines passing the current ROI filter.
+
         Parameters
         ----------
         sft : StatefulTractogram
@@ -240,6 +257,18 @@ class VisualizationManager:
         """
         colormap = distinguishable_colormap()
         streamline_ids = state.streamline_ids
+        if state.filtered_streamline_ids is not None:
+            streamline_ids = np.asarray(
+                sorted(
+                    set(np.asarray(streamline_ids, dtype=np.int32).tolist())
+                    & set(
+                        np.asarray(
+                            state.filtered_streamline_ids, dtype=np.int32
+                        ).tolist()
+                    )
+                ),
+                dtype=np.int32,
+            )
         clusters = mkbm_clustering(
             sft.data_per_streamline["dismatrix"],
             n_clusters=state.nb_clusters,
@@ -451,6 +480,174 @@ class VisualizationManager:
     def parcel_visualizations(self):
         """Return the parcel visualization list."""
         return self._visualizations["parcel"]
+
+    def visualize_rois(self):
+        """Build actors for every provided ROI.
+
+        Colors and per-ROI visibility are cached by file path so they
+        remain stable across rebuilds.
+
+        Returns
+        -------
+        list
+            The list of ROI actors. Empty when no ROI is provided.
+        """
+        self._visualizations["roi"] = []
+        if not input_manager.has_roi:
+            return self._visualizations["roi"]
+
+        opacity = state_manager.roi_opacity / 100.0
+        for index in range(len(input_manager.provided_roi_paths)):
+            roi_volume, affine, path, _ = input_manager.get_roi_at(index)
+            color = self._roi_colors.get(path)
+            if color is None:
+                color = next(self._roi_colormap)
+                self._roi_colors[path] = color
+            roi_actor = create_roi(roi_volume, affine=affine, color=color)
+            self._apply_roi_opacity(roi_actor, opacity)
+            roi_actor.color = color
+            roi_actor.visible = self._roi_visibility.get(path, True)
+            self._visualizations["roi"].append(roi_actor)
+        return self._visualizations["roi"]
+
+    def _apply_roi_opacity(self, roi_actor, opacity):
+        """Apply an opacity value to every child of an ROI Group actor.
+
+        Parameters
+        ----------
+        roi_actor : Group
+            The ROI group whose contour children should be updated.
+        opacity : float
+            The opacity value in the [0, 1] range.
+        """
+        for contour in roi_actor.children:
+            contour.material.opacity = opacity
+            if opacity < 1.0:
+                contour.material.alpha_mode = "blend"
+                contour.material.depth_write = False
+            else:
+                contour.material.alpha_mode = "auto"
+                contour.material.depth_write = True
+
+    def toggle_roi_visibility_at(self, index):
+        """Toggle visibility for a single ROI actor.
+
+        Parameters
+        ----------
+        index : int
+            Index of the ROI actor whose visibility should flip.
+        """
+        if index < 0 or index >= len(self._visualizations["roi"]):
+            return
+        actor = self._visualizations["roi"][index]
+        actor.visible = not actor.visible
+        path = input_manager.provided_roi_paths[index]
+        self._roi_visibility[path] = bool(actor.visible)
+
+    def is_roi_visible_at(self, index):
+        """Return whether the ROI actor at ``index`` is currently shown."""
+        if index < 0 or index >= len(self._visualizations["roi"]):
+            return True
+        return bool(self._visualizations["roi"][index].visible)
+
+    def set_roi_opacity(self, value):
+        """Set opacity for every ROI actor from a 0–100 slider value.
+
+        Parameters
+        ----------
+        value : int
+            The slider value (0-100).
+        """
+        state_manager.roi_opacity = value
+        opacity = value / 100.0
+        for roi_actor in self._visualizations["roi"]:
+            self._apply_roi_opacity(roi_actor, opacity)
+
+    def get_roi_color(self, index):
+        """Return the assigned RGB color of an ROI actor.
+
+        Parameters
+        ----------
+        index : int
+            Index of the ROI actor.
+
+        Returns
+        -------
+        tuple of float or None
+            The RGB color, or None if ``index`` is out of range.
+        """
+        if index < 0 or index >= len(self._visualizations["roi"]):
+            return None
+        return getattr(self._visualizations["roi"][index], "color", None)
+
+    @property
+    def roi_visualizations(self):
+        """Return the list of ROI actors."""
+        return self._visualizations["roi"]
+
+    def apply_roi_filter(self):
+        """Filter the tractogram streamlines through every loaded ROI.
+
+        Combines the loaded ROI volumes with a logical AND, transforms the
+        resulting mask into world coordinates, and stores the streamline
+        ids that pass the filter on the latest cluster state. The cluster
+        state is also invalidated so the next call to
+        :meth:`_apply_tractogram_states` re-clusters on the filtered set.
+        Clears the filter when no ROI is loaded.
+
+        The reference shape and affine come from the T1 image when one is
+        loaded (matching the legacy ``app.py`` pipeline) and otherwise
+        fall back to the first ROI's own shape and affine.
+
+        Returns
+        -------
+        bool
+            True when the latest state was modified and the tractogram
+            visualization needs rebuilding, False otherwise.
+        """
+        if not state_manager.has_states():
+            return False
+        latest_state = state_manager.get_latest_state()
+
+        if not input_manager.has_roi:
+            if latest_state.filtered_streamline_ids is None:
+                return False
+            latest_state.filtered_streamline_ids = None
+            latest_state.tractogram_states = None
+            return True
+
+        if not input_manager.has_tractogram:
+            return False
+
+        sft, _, _, _ = input_manager.get_current_tractogram()
+
+        roi_volumes = []
+        for index in range(len(input_manager.provided_roi_paths)):
+            roi_volume, _roi_affine, _, _ = input_manager.get_roi_at(index)
+            roi_volumes.append(roi_volume)
+
+        if input_manager.has_t1:
+            t1_volume, reference_affine, _, _ = input_manager.get_current_t1()
+            reference_shape = t1_volume.shape
+        else:
+            reference_shape = roi_volumes[0].shape
+            _, reference_affine, _, _ = input_manager.get_roi_at(0)
+
+        try:
+            combined_mask = calculate_filter(
+                roi_volumes, reference_shape=reference_shape
+            )
+        except ValueError:
+            return False
+
+        world_mask, origin = transform_roi_to_world_grid(
+            combined_mask, reference_affine
+        )
+
+        kept_ids = filter_streamline_ids(sft.streamlines, world_mask, origin=origin)
+        latest_state.filtered_streamline_ids = np.asarray(kept_ids, dtype=np.int32)
+        latest_state.tractogram_states = None
+        return True
 
 
 visualization_manager = VisualizationManager()

@@ -122,6 +122,7 @@ QCheckBox::indicator:checked {
 #imageTitle,
 #meshTitle,
 #parcelTitle,
+#roiTitle,
 #clustersTitle {
 	color: #ffffff;
 	font-weight: bold;
@@ -191,20 +192,25 @@ QCheckBox::indicator:checked {
 }
 
 #keystrokeCard {
-    background-color: rgba(80, 80, 80, 180);
+    background: #333333;
     border: none;
     border-radius: 0px;
 }
 
+#keystrokeCard QLabel {
+    background: #333333;
+    color: #ffffff;
+}
+
 #keystrokeTitle {
-    background: transparent;
+    background: #333333;
     color: #ffffff;
     font-size: 12pt;
     font-weight: bold;
 }
 
 #keystrokeContent {
-    background: transparent;
+    background: #333333;
     color: #ffffff;
     font-size: 11pt;
 }
@@ -496,4 +502,68 @@ QCheckBox::indicator:checked {
     selection-color: #121212;
     outline: none;
     padding: 4px;
+}
+
+/* ROI Input Widget */
+#roiInputWidget {
+    background-color: #1e1e1e;
+    border: 2px solid #8F42ED;
+    border-radius: 12px;
+    outline: none;
+}
+
+#roiAddButton {
+    padding: 0;
+    color: #ffffff;
+    background-color: #575757;
+    border: 2px solid #747474;
+    border-radius: 8px;
+    font-size: 14pt;
+    font-weight: bold;
+}
+
+#roiAddButton:hover {
+    border-color: #8a8a8a;
+}
+
+#roiOpacityLabel {
+    color: #ffffff;
+    font-size: 11pt;
+}
+
+#roiOpacityTickLabel {
+    color: #aaaaaa;
+    font-size: 10pt;
+}
+
+#roiOpacitySlider::groove:horizontal {
+    background: #575757;
+    height: 6px;
+    border-radius: 3px;
+}
+
+#roiOpacitySlider::handle:horizontal {
+    background: #c0c0c0;
+    width: 14px;
+    height: 14px;
+    margin: -5px 0;
+    border-radius: 7px;
+}
+
+#roiRowLabel {
+    color: #ffffff;
+    font-size: 10pt;
+}
+
+#roiVisibilityButton {
+    padding: 0;
+    border: none;
+}
+
+#roiRemoveButton {
+    padding: 0;
+    border: none;
+    color: #ffffff;
+    font-size: 13pt;
+    font-weight: bold;
 }
