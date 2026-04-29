@@ -123,6 +123,7 @@ QCheckBox::indicator:checked {
 #meshTitle,
 #parcelTitle,
 #roiTitle,
+#roiCreateTitle,
 #clustersTitle,
 #viewModeTitle {
 	color: #ffffff;
@@ -627,4 +628,78 @@ QToolButton#roiRemoveButton:hover {
 QToolButton#roiRemoveButton {
     font-size: 13pt;
     font-weight: bold;
+}
+
+/* ROI Edit / Create Widget — matches the ROI input widget border so
+   the two read as a pair, just shown in different modes. */
+#roiCreateWidget {
+    background-color: #1e1e1e;
+    border: 2px solid #8F42ED;
+    border-radius: 12px;
+    outline: none;
+}
+
+#roiPropsTitle {
+    color: #ffffff;
+    font-size: 12pt;
+    font-weight: bold;
+    padding-top: 4px;
+    padding-bottom: 2px;
+}
+
+#roiPropKey {
+    color: #ffffff;
+    font-size: 11pt;
+}
+
+#roiPropValue {
+    color: #ffffff;
+    font-size: 11pt;
+}
+
+QPushButton[class="roiToolButton"] {
+    color: #ffffff;
+    background-color: #575757;
+    border: 2px solid #747474;
+    border-radius: 8px;
+    font-size: 14pt;
+    padding: 0;
+}
+
+QPushButton[class="roiToolButton"]:hover:enabled {
+    border-color: #8a8a8a;
+}
+
+QPushButton[class="roiToolButton"]:checked {
+    background-color: #1e1e1e;
+    border-color: #ffffff;
+}
+
+QPushButton[class="roiToolButton"]:disabled {
+    color: #888888;
+    background-color: #3a3a3a;
+    border-color: #4a4a4a;
+}
+
+#roiExistingList {
+    background-color: #1e1e1e;
+    border: 1px solid #3a3a3a;
+    border-radius: 8px;
+    color: #ffffff;
+    padding: 4px;
+    outline: none;
+}
+
+#roiExistingList::item {
+    padding: 4px 6px;
+    border-radius: 4px;
+}
+
+#roiExistingList::item:selected {
+    background-color: #8F42ED;
+    color: #ffffff;
+}
+
+#roiExistingList::item:hover:!selected {
+    background-color: #2a2a2a;
 }

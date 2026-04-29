@@ -904,6 +904,7 @@ class RoiInputWidget(QFrame):
     rois_changed = Signal()
     roi_visibility_changed = Signal()
     roi_opacity_changed = Signal(int)
+    roi_create_requested = Signal()
 
     def __init__(self, *, parent=None):
         super().__init__(parent)
@@ -1020,13 +1021,17 @@ class RoiInputWidget(QFrame):
         self.refresh_rois()
 
     def _on_add_clicked(self):
-        """Add another ROI from disk.
+        """Enter the interactive ROI create mode.
 
-        Mirrors the upload action so users can keep stacking ROIs without
-        leaving the panel. A future revision can replace this with an
-        interactive ROI creation dialog.
+        Drawing requires a T1 image to anchor the slice plane. When no
+        T1 is loaded the button only flashes a tooltip instead of
+        emitting the request signal.
         """
-        self._on_upload_clicked()
+        if not input_manager.has_t1:
+            self.add_button.setToolTip("Load a T1 image first to draw an ROI")
+            return
+        self.add_button.setToolTip("Add a new ROI")
+        self.roi_create_requested.emit()
 
     def _on_opacity_changed(self, value):
         """Update opacity for every ROI actor.

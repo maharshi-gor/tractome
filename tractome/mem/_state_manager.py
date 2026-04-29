@@ -48,6 +48,7 @@ class StateManager:
         self.parcel_size = 100
         self.parcel_visible = True
         self.roi_opacity = 80
+        self.roi_create_mode = None  # None | "sphere" | "cylinder"
 
     def has_states(self):
         """Check if there are any states in the history.

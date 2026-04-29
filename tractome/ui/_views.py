@@ -1,4 +1,4 @@
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QTimer, Qt
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QFrame,
@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+import numpy as np
 
 from tractome.mem import input_manager, state_manager, visualization_manager
 from tractome.ui._control_section import LeftSectionWidget
@@ -16,6 +17,7 @@ from tractome.ui._input_section import RightSectionWidget
 from tractome.ui._paths import IMAGES_PATH
 from tractome.ui._visualization_section import CenterSectionWidget
 from tractome.ui.utils import open_file_dialog
+from tractome.viz import rasterize_cylinder, rasterize_sphere
 
 
 class StartScreen(QWidget):
@@ -131,6 +133,21 @@ class InteractionScreen(QWidget):
         self._left_section.roi_input_widget.roi_opacity_changed.connect(
             self._on_roi_opacity_changed
         )
+        self._left_section.roi_input_widget.roi_create_requested.connect(
+            self._on_roi_create_requested
+        )
+        self._left_section.roi_create_widget.shape_changed.connect(
+            self._on_roi_create_shape_changed
+        )
+        self._left_section.roi_create_widget.edit_requested.connect(
+            self._on_roi_create_edit_requested
+        )
+        self._center_section.roi_drawn.connect(self._on_roi_drawn)
+        self._draft_roi_id = None
+        # ROI synthetic id -> last shape rasterized for it ("sphere"
+        # or "cylinder"). Decoupled from the synthetic id so an ROI
+        # can change shape without being renamed.
+        self._roi_shape_by_id = {}
         self._left_section.view_mode_widget.view_mode_changed.connect(
             self._on_view_mode_changed
         )
@@ -251,6 +268,240 @@ class InteractionScreen(QWidget):
         """Re-render after the ROI opacity slider moves."""
         self._center_section.show_manager.render()
 
+    def _on_roi_create_requested(self):
+        """Switch to 2D mode and start the interactive ROI draw."""
+        if not input_manager.has_t1:
+            return
+        if state_manager.view_mode != "2D":
+            self._left_section.view_mode_widget.set_mode("2D")
+            self._on_view_mode_changed("2D")
+        shape = self._left_section.roi_create_widget.current_shape()
+        self._center_section.enter_roi_create_mode(shape)
+        self._draft_roi_id = None
+        self._left_section.update_controls_for_visualization()
+        # Re-entering create mode shows every ROI drawn in earlier
+        # sessions; the user can pick one to edit instead of starting
+        # a new ROI from scratch.
+        self._left_section.roi_create_widget.clear_existing_selection()
+        self._refresh_roi_create_existing_list()
+
+    def _refresh_roi_create_existing_list(self):
+        """Push the current set of ROIs into the create panel's list.
+
+        The list mirrors ``input_manager.provided_roi_paths`` and is
+        called whenever the set of ROIs changes (entering create
+        mode, after each draw, after an edit-target change). Color
+        comes from the visualization manager so the swatches in the
+        list match the contours in the 3D scene.
+        """
+        items = []
+        for index, name in enumerate(input_manager.provided_roi_paths):
+            color = visualization_manager.get_roi_color(index)
+            items.append({"name": str(name), "color": color})
+        self._left_section.roi_create_widget.refresh_existing_rois(items)
+
+    def _on_roi_create_shape_changed(self, shape):
+        """Update the active shape used by the next drag.
+
+        The draft pointer is intentionally **kept**: switching from
+        sphere to cylinder (or back) on the same draft replaces that
+        ROI's volume with the new primitive on the next drag, rather
+        than spawning a third entry. To start a fresh ROI the user
+        clears the existing-ROIs selection.
+        """
+        self._center_section.set_roi_create_shape(shape)
+
+    def _on_roi_create_edit_requested(self, name):
+        """Make the selected existing ROI the active edit target.
+
+        ``name`` is the synthetic id stored in input_manager; an empty
+        string means "no selection — next drag creates a new ROI".
+        Setting the draft pointer to an existing ROI is all we need:
+        the next drag flows through ``update_roi_volume`` and rewrites
+        that ROI in place. We also push the selected ROI's metadata
+        into the Properties pane so the user sees what they're editing.
+        """
+        if not name:
+            self._draft_roi_id = None
+            self._left_section.roi_create_widget.reset_properties()
+            return
+
+        roi_paths = list(input_manager.provided_roi_paths)
+        if name not in roi_paths:
+            self._draft_roi_id = None
+            self._left_section.roi_create_widget.reset_properties()
+            return
+
+        index = roi_paths.index(name)
+        self._draft_roi_id = name
+        try:
+            volume, _, _, _ = input_manager.get_roi_at(index)
+        except ValueError:
+            volume = None
+        if volume is not None:
+            try:
+                import numpy as np  # local: shadow not desired at module scope
+
+                ix, iy, iz = np.where(volume > 0)
+                voxel_pos = (ix.mean(), iy.mean(), iz.mean()) if len(ix) else None
+            except Exception:
+                voxel_pos = None
+        else:
+            voxel_pos = None
+        # The synthetic id is now shape-agnostic ("ROI N"); the
+        # actual shape is read from the side-table populated each
+        # time a draft is rasterized.
+        shape = self._roi_shape_by_id.get(name)
+        type_ = shape.capitalize() if shape else "–"
+        color = visualization_manager.get_roi_color(index)
+        self._left_section.roi_create_widget.set_properties(
+            name=name,
+            visibility=True,
+            type_=type_,
+            position=voxel_pos,
+            color=color,
+        )
+
+    def _commit_roi_create_session(self):
+        """Finish a create-mode session: exit mode + apply filter.
+
+        Single-ROI-per-session: any ROIs drawn in this session stay
+        in the input manager; the draft pointer is cleared, the
+        center-section drag handlers are removed, and the streamline
+        filter + recluster runs once so the 3D tractogram view
+        reflects whatever was drawn.
+        """
+        was_create_mode = state_manager.roi_create_mode is not None
+        had_draft = self._draft_roi_id is not None
+        self._draft_roi_id = None
+        self._center_section.exit_roi_create_mode()
+        self._left_section.roi_create_widget.reset_properties()
+        self._left_section.update_controls_for_visualization()
+        self._left_section.roi_input_widget.refresh_rois()
+        # Only run the (potentially expensive) filter + recluster if
+        # we were actually in create mode AND the user committed at
+        # least one drag in this session. A no-op session shouldn't
+        # trigger reclustering.
+        if was_create_mode and had_draft and input_manager.has_roi:
+            self._on_rois_changed()
+
+    def _on_roi_drawn(self, world_center, world_radius, shape):
+        """Rasterize the drawn shape into a binary volume.
+
+        Behaviour: while the user keeps drawing without clicking
+        ``New`` or ``Save`` the same draft ROI is overwritten in
+        place. Clicking ``New`` clears the draft pointer so the next
+        drag lands as a fresh entry. ``Save`` is what triggers the
+        filter + recluster pass; this method never runs that pipeline.
+        """
+        if not input_manager.has_t1:
+            return
+        t1_volume, affine, _, _ = input_manager.get_current_t1()
+        shape_volume = t1_volume.shape
+
+        slice_axis = None
+        for index, value in enumerate(state_manager.t1_slice_visibility_2d):
+            if value:
+                slice_axis = index
+                break
+
+        if shape == "cylinder" and slice_axis is not None:
+            # The cylinder runs perpendicular to the active slice and
+            # should span the full T1 along that axis (the user is
+            # carving a tube through the whole brain, not just one
+            # slab). World extent along the axis = nb_voxels * voxel
+            # spacing. We pass 2x that so the cylinder definitely
+            # covers the volume regardless of where the click landed
+            # — rasterize_cylinder already clips to the volume
+            # bounds, so the 2x is free.
+            spacing = float(np.linalg.norm(affine[:3, slice_axis]))
+            full_extent = float(shape_volume[slice_axis]) * spacing
+            world_height = max(2.0 * full_extent, 1.0)
+            volume = rasterize_cylinder(
+                shape_volume,
+                affine,
+                world_center,
+                float(world_radius),
+                slice_axis,
+                world_height,
+            )
+        else:
+            volume = rasterize_sphere(
+                shape_volume,
+                affine,
+                world_center,
+                float(world_radius),
+            )
+
+        if not np.any(volume):
+            return
+
+        if self._draft_roi_id is None:
+            self._draft_roi_id = input_manager.add_roi_volume(
+                volume, affine, label=shape
+            )
+        else:
+            input_manager.update_roi_volume(self._draft_roi_id, volume, affine)
+        # Remember the shape that was rasterized so the Properties
+        # pane (and a later edit-target switch) can show the right
+        # Type without having to parse the synthetic id.
+        self._roi_shape_by_id[self._draft_roi_id] = shape
+
+        # Refresh ROI actors only — filter + recluster is deferred
+        # until the user leaves create mode (handled by
+        # _commit_roi_create_session). visualize_rois() rebuilds all
+        # contours; for the draft case that's just one cheap
+        # marching-cubes run, not the full clustering pipeline.
+        roi_viz = list(visualization_manager.roi_visualizations)
+        if roi_viz:
+            self._center_section.remove_visualization(roi_viz, visualization_type="roi")
+        roi_vis = visualization_manager.visualize_rois()
+        if roi_vis:
+            self._center_section.add_visualization(roi_vis, visualization_type="roi")
+
+        self._center_section.remove_2d_visualization(
+            visualization_manager.roi_2d_visualizations
+        )
+        roi_2d = visualization_manager.visualize_rois_2d()
+        if roi_2d:
+            self._center_section.add_2d_visualization(roi_2d)
+
+        # pygfx commits scene-graph changes one frame late (same
+        # workaround as set_view_mode), so schedule a deferred render
+        # to make the new slicer visible without a 3D/2D toggle.
+        self._center_section.show_manager.render()
+        QTimer.singleShot(0, self._center_section.show_manager.render)
+
+        # Push the active ROI's metadata into the Properties pane.
+        # Voxel position uses the volume centroid so it stays
+        # meaningful as the user re-drags the same draft.
+        try:
+            ix, iy, iz = np.where(volume > 0)
+            voxel_pos = (ix.mean(), iy.mean(), iz.mean())
+        except Exception:
+            voxel_pos = None
+        roi_index = next(
+            (
+                i
+                for i, p in enumerate(input_manager.provided_roi_paths)
+                if p == self._draft_roi_id
+            ),
+            -1,
+        )
+        color = visualization_manager.get_roi_color(roi_index)
+        self._left_section.roi_create_widget.set_properties(
+            name=self._draft_roi_id or "–",
+            visibility=True,
+            type_=shape.capitalize() if shape else "–",
+            position=voxel_pos,
+            color=color,
+        )
+        # Newly-added ROIs need to appear in the existing-ROIs list
+        # immediately; updates to an existing draft re-emit the same
+        # name so the list still refreshes (cheap — just rebuilds N
+        # rows in a QListWidget).
+        self._refresh_roi_create_existing_list()
+
     def _on_view_mode_changed(self, mode):
         """Switch the active scene and matching control panels for ``mode``.
 
@@ -265,6 +516,15 @@ class InteractionScreen(QWidget):
         """
         if state_manager.view_mode == mode:
             return
+
+        # Leaving create mode for 3D commits the session: any drawn
+        # ROI is finalized, the panel resets, and the streamline
+        # filter + recluster runs once so the 3D tractogram view
+        # reflects the new ROI. This is the only place the filter
+        # runs during a create session — per-draw refreshes never
+        # touch the cluster pipeline.
+        if state_manager.roi_create_mode is not None and mode == "3D":
+            self._commit_roi_create_session()
 
         state_manager.view_mode = mode
         if mode == "2D":

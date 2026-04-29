@@ -410,6 +410,9 @@ class VisualizationManager:
                 ),
                 dtype=np.int32,
             )
+        if len(streamline_ids) == 0:
+            state.tractogram_states = {}
+            return
         clusters = mkbm_clustering(
             sft.data_per_streamline["dismatrix"],
             n_clusters=state.nb_clusters,

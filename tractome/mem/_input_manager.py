@@ -63,6 +63,7 @@ class InputManager:
             "parcel": None,
         }
         self._loaded_rois = {}
+        self._created_roi_counters = {}
 
     def add_tractogram(self, tractogram):
         """Add a tractogram path and make it the current tractogram.
@@ -119,6 +120,63 @@ class InputManager:
         """
         self._provided_inputs["roi"].append(roi)
         self._current_inputs["roi"] = len(self._provided_inputs["roi"]) - 1
+
+    def update_roi_volume(self, roi_id, volume, affine):
+        """Replace the cached volume/affine for an existing in-memory ROI.
+
+        Used by the interactive ROI create mode: while the user keeps
+        re-dragging without committing, the same synthetic ROI entry is
+        overwritten in place rather than spawning a new one.
+
+        Parameters
+        ----------
+        roi_id : str
+            Identifier returned by :meth:`add_roi_volume`.
+        volume : ndarray
+            Replacement binary ROI volume.
+        affine : ndarray
+            Replacement voxel-to-world affine.
+        """
+        if roi_id not in self._loaded_rois:
+            raise ValueError(f"Unknown in-memory ROI: {roi_id!r}")
+        index = self._provided_inputs["roi"].index(roi_id)
+        self._loaded_rois[roi_id] = (volume, affine, roi_id, index)
+
+    def add_roi_volume(self, volume, affine, *, label="roi"):
+        """Add an ROI from an in-memory binary volume and make it current.
+
+        The ROI is registered under a synthetic identifier of the form
+        ``"<created>:<label>:<n>"``. The identifier takes the place of
+        a file path in the input manager so per-ROI dicts keyed by path
+        (colors, visibility, applied/negated flags) keep working.
+
+        Parameters
+        ----------
+        volume : ndarray
+            Binary ROI volume.
+        affine : ndarray
+            Voxel-to-world affine matrix shared with the reference image.
+        label : str, optional
+            Human-readable shape tag included in the synthetic id.
+
+        Returns
+        -------
+        str
+            The synthetic identifier registered in the input manager.
+        """
+        # Use a single counter independent of the shape label so the
+        # synthetic id stays stable even if the user switches shape
+        # mid-edit (a "Sphere 1" that becomes a cylinder must not be
+        # renamed; the actual shape is tracked separately by the
+        # screen).
+        total = self._created_roi_counters.get("__total__", 0) + 1
+        self._created_roi_counters["__total__"] = total
+        roi_id = f"ROI {total}"
+        self._provided_inputs["roi"].append(roi_id)
+        index = len(self._provided_inputs["roi"]) - 1
+        self._current_inputs["roi"] = index
+        self._loaded_rois[roi_id] = (volume, affine, roi_id, index)
+        return roi_id
 
     def add_parcel(self, parcel):
         """Add a parcel path and make it the current parcel.

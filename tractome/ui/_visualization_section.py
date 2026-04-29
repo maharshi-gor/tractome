@@ -1,4 +1,4 @@
-from PySide6.QtCore import QTimer, Qt
+from PySide6.QtCore import QTimer, Qt, Signal
 from PySide6.QtWidgets import (
     QApplication,
     QFrame,
@@ -8,8 +8,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 import numpy as np
+import pylinalg as la
 
-from fury import window
+from fury import actor, window
 from fury.lib import (
     DirectionalLight,
     Event,
@@ -23,6 +24,8 @@ from tractome.mem import state_manager, visualization_manager
 
 class CenterSectionWidget(QFrame):
     """Center section container for visualization/content."""
+
+    roi_drawn = Signal(object, object, str)
 
     def __init__(self):
         super().__init__()
@@ -62,6 +65,11 @@ class CenterSectionWidget(QFrame):
             self.show_manager._set_key_long_press_event, "key_up", "key_down"
         )
 
+        self._roi_create_initial_pos = None
+        self._roi_create_preview = None
+        self._roi_drag_handlers_registered = False
+        self._roi_create_dragging = False
+
         def _register_clicks(event):
             """Handle selection clicks.
 
@@ -70,6 +78,8 @@ class CenterSectionWidget(QFrame):
             event : Event
                 The click event.
             """
+            if state_manager.roi_create_mode is not None:
+                return
             if event.type == "pointer_down":
                 self._focused_actor = event.target
             elif event.type == "pointer_up" and self._focused_actor != event.target:
@@ -307,6 +317,268 @@ class CenterSectionWidget(QFrame):
         self._display_cluster_count.setText(f"# of clusters: {cluster_count}")
         self._display_roi_count.setText(f"# of ROI: {roi_count}")
         self._display_fibers_count.setText(f"# of fibers: {fibers_count}")
+
+    def enter_roi_create_mode(self, shape):
+        """Enter the interactive ROI drawing mode for the given shape.
+
+        Disables the 2D pan/zoom controller and registers drag handlers
+        so the next pointer drag draws an ROI on the active slice plane.
+        """
+        state_manager.roi_create_mode = shape
+        self._roi_create_initial_pos = None
+        self._roi_create_dragging = False
+        self._cleanup_roi_preview()
+        self._2D_controller.enabled = False
+        if not self._roi_drag_handlers_registered:
+            self.show_manager.renderer.add_event_handler(
+                self._on_roi_create_drag, "pointer_drag"
+            )
+            self.show_manager.renderer.add_event_handler(
+                self._on_roi_create_release, "pointer_up"
+            )
+            self._roi_drag_handlers_registered = True
+
+    def exit_roi_create_mode(self):
+        """Leave the ROI create mode and restore normal interactions."""
+        state_manager.roi_create_mode = None
+        self._roi_create_initial_pos = None
+        self._cleanup_roi_preview()
+        self._roi_create_dragging = False
+        if self._roi_drag_handlers_registered:
+            self.show_manager.renderer.remove_event_handler(
+                self._on_roi_create_drag, "pointer_drag"
+            )
+            self.show_manager.renderer.remove_event_handler(
+                self._on_roi_create_release, "pointer_up"
+            )
+            self._roi_drag_handlers_registered = False
+        if state_manager.view_mode == "2D":
+            self._2D_controller.enabled = True
+        self.show_manager.render()
+
+    def set_roi_create_shape(self, shape):
+        """Update the active shape mid-mode without re-registering handlers."""
+        if state_manager.roi_create_mode is None:
+            return
+        state_manager.roi_create_mode = shape
+
+    def _cleanup_roi_preview(self):
+        """Remove the preview disk actor from the 2D scene if present."""
+        if self._roi_create_preview is not None:
+            try:
+                self._2D_scene.remove(self._roi_create_preview)
+            except Exception:
+                pass
+            self._roi_create_preview = None
+
+    def _active_2d_slice_axis(self):
+        """Return the voxel-axis index visible in the 2D scene, or None."""
+        visibility = state_manager.t1_slice_visibility_2d
+        for index, value in enumerate(visibility):
+            if value:
+                return index
+        return None
+
+    def _slice_plane_world(self, axis):
+        """Return ``(plane_point, plane_normal)`` for the active slice plane.
+
+        ``state_manager.t1_state`` already stores the slice positions in
+        world coordinates (the sliders are populated from the T1 actor's
+        world-space bounding box), so we use it directly as a point on
+        the plane. The slicer renders axis-aligned planes in world
+        space, so the normal is simply the world unit axis matching
+        the active slice index.
+        """
+        plane_point = np.asarray(state_manager.t1_state, dtype=np.float64)
+        normal = np.zeros(3, dtype=np.float64)
+        normal[axis] = 1.0
+        return plane_point, normal
+
+    def _screen_to_slice_world(self, x, y):
+        """Convert canvas pixel ``(x, y)`` to a world point on the active slice.
+
+        Uses pygfx's own ``pylinalg.vec_transform`` so that NDC z and
+        homogeneous division follow pygfx's WebGPU clip-space
+        convention (z_ndc in [0, 1], not OpenGL's [-1, 1]). The unprojected
+        near and far points define the camera ray; we then intersect that
+        ray with the active slice plane in world space.
+        """
+        axis = self._active_2d_slice_axis()
+        if axis is None:
+            return None, None
+        plane_point, plane_normal = self._slice_plane_world(axis)
+
+        screen = self.show_manager.screens[0]
+        try:
+            vp_x, vp_y, vp_w, vp_h = screen.viewport.rect
+        except Exception:
+            vp_w, vp_h = self.show_manager.size
+            vp_x, vp_y = 0, 0
+        if vp_w <= 0 or vp_h <= 0:
+            return None, None
+
+        x_local = float(x) - float(vp_x)
+        y_local = float(y) - float(vp_y)
+        x_ndc = (2.0 * x_local / float(vp_w)) - 1.0
+        y_ndc = 1.0 - (2.0 * y_local / float(vp_h))
+
+        camera = self._2D_camera
+        proj_inv = np.asarray(camera.projection_matrix_inverse, dtype=np.float64)
+        cam_world = np.asarray(camera.world.matrix, dtype=np.float64)
+
+        # WebGPU clip-space: near plane at z_ndc=0, far plane at z_ndc=1.
+        ndc_near = np.array([x_ndc, y_ndc, 0.0], dtype=np.float64)
+        ndc_far = np.array([x_ndc, y_ndc, 1.0], dtype=np.float64)
+        view_near = la.vec_transform(ndc_near, proj_inv)
+        view_far = la.vec_transform(ndc_far, proj_inv)
+        world_near = la.vec_transform(view_near, cam_world)
+        world_far = la.vec_transform(view_far, cam_world)
+
+        ray_dir = world_far - world_near
+        norm = float(np.linalg.norm(ray_dir))
+        if norm < 1e-9:
+            return None, None
+        ray_dir = ray_dir / norm
+        denom = float(np.dot(ray_dir, plane_normal))
+        if abs(denom) < 1e-6:
+            return None, None
+        t = float(np.dot(plane_point - world_near, plane_normal)) / denom
+        world_point = world_near + t * ray_dir
+        return world_point, axis
+
+    def _ensure_preview_disk(self, axis):
+        """Create the preview disk lazily once a gesture has two points.
+
+        The disk is unit-radius, translucent, lifted off the slice
+        along the slice plane normal so it isn't z-fighting the
+        slicer, and given a low ``render_order`` (this codebase's
+        weighted_blend slicer composites cleanest when the preview
+        sits below the slicer in the sort order).
+        """
+        if self._roi_create_preview is not None:
+            return self._roi_create_preview
+        _, plane_normal = self._slice_plane_world(axis)
+        self._roi_create_plane_normal = np.asarray(plane_normal, dtype=np.float32)
+        # Build the disk with default ``directions`` so its vertices
+        # land in the XY plane (normal = +Z). FURY's repeat_primitive
+        # treats X (not Z) as the source normal when applying the
+        # ``directions`` rotation, so passing ``(0,0,1)`` for a Z-slice
+        # tilts the disk onto the YZ plane and renders it edge-on to
+        # the camera (i.e. invisible). We instead reorient via
+        # ``local.rotation`` below.
+        preview = actor.disk(
+            np.zeros((1, 3), dtype=np.float32),
+            colors=(0.3, 0.7, 1.0),
+            radii=1.0,
+            opacity=0.5,
+            material="basic",
+        )
+        try:
+            q = la.quat_from_vecs(
+                np.array([0.0, 0.0, 1.0], dtype=np.float64),
+                np.asarray(plane_normal, dtype=np.float64),
+            )
+            preview.local.rotation = q
+        except Exception:
+            pass
+        preview.material.alpha_mode = "weighted_blend"
+        preview.material.depth_write = False
+        self._roi_create_preview = preview
+        self._2D_scene.add(preview)
+        return preview
+
+    def _update_preview_disk(self, center, radius):
+        """Position and scale the preview disk for the current drag state.
+
+        Offset by one world unit along the slice plane normal so the
+        disk's depth differs from the slicer's depth — same-depth
+        produced an invisible result on the user's setup.
+        """
+        preview = self._roi_create_preview
+        if preview is None or radius <= 0:
+            return
+        normal = getattr(
+            self, "_roi_create_plane_normal", np.array([0, 0, 1], np.float32)
+        )
+        center = np.asarray(center, dtype=np.float32) + normal * 1.0
+        preview.local.position = tuple(center)
+        preview.local.scale = (float(radius), float(radius), 1.0)
+
+    def _on_roi_create_drag(self, event):
+        """Track the drag and update the live ROI preview disk.
+
+        Diameter mode: the click point is one end of the diameter and
+        the current pointer is the other. The disk's center is the
+        midpoint and its radius is half the world-space distance
+        between the two. The first event of a gesture only records
+        the start point; the disk is created on the second event so
+        it's already at a visible size from frame one.
+
+        FURY synthesizes ``pointer_drag`` from ``pointer_down`` +
+        ``pointer_move`` (see ShowManager._register_drag in window.py).
+        """
+        if state_manager.roi_create_mode is None:
+            return
+        world_pos, axis = self._screen_to_slice_world(event.x, event.y)
+        if world_pos is None:
+            return
+        if self._roi_create_initial_pos is None:
+            self._roi_create_initial_pos = (world_pos, axis)
+            self._roi_create_dragging = True
+            return
+
+        start, fixed_axis = self._roi_create_initial_pos
+        end = world_pos
+        center = (np.asarray(start) + np.asarray(end)) / 2.0
+        radius = float(np.linalg.norm(end - start)) / 2.0
+        if radius <= 0:
+            return
+        self._ensure_preview_disk(fixed_axis)
+        self._update_preview_disk(center, radius)
+        # During the drag we are inside a Qt mouse-event handler, so a
+        # plain ``request_draw`` only schedules the paint for the next
+        # vsync — but Qt is busy delivering more mouse events, so the
+        # paint event never fires until we let go. ``force_draw`` calls
+        # the canvas's ``repaint`` synchronously, and we follow it with
+        # a ``processEvents`` so Qt actually delivers the paint event
+        # before the next pointer event arrives. ``render`` first so
+        # the canvas has a draw function registered.
+        self.show_manager.render()
+        try:
+            self.show_manager.window.force_draw()
+        except RuntimeError:
+            # A draw is already in flight; the scheduled paint will
+            # pick up the latest matrix on the next frame.
+            pass
+        QApplication.processEvents()
+
+    def _on_roi_create_release(self, event):
+        """Finalize the in-progress ROI on pointer release."""
+        if state_manager.roi_create_mode is None:
+            return
+        if not self._roi_create_dragging or self._roi_create_initial_pos is None:
+            self._roi_create_dragging = False
+            self._roi_create_initial_pos = None
+            return
+        world_pos, _ = self._screen_to_slice_world(event.x, event.y)
+        start, axis = self._roi_create_initial_pos
+        self._roi_create_initial_pos = None
+        self._roi_create_dragging = False
+        self._cleanup_roi_preview()
+        if world_pos is None:
+            self.show_manager.render()
+            return
+        end = world_pos
+        center = (np.asarray(start) + np.asarray(end)) / 2.0
+        radius = float(np.linalg.norm(end - start)) / 2.0
+        if radius <= 0:
+            self.show_manager.render()
+            return
+        self.roi_drawn.emit(
+            np.asarray(center, dtype=np.float64),
+            float(radius),
+            state_manager.roi_create_mode,
+        )
 
     def handle_key_strokes(self, event):
         """Handle key strokes.

@@ -307,6 +307,146 @@ def create_streamtube(line, color, radius):
     return streamtube
 
 
+def _voxel_bbox_for_world_box(shape, inv_affine, world_corners):
+    """Voxel-space (vmin, vmax) bbox covering the given world-space corners.
+
+    The corners are transformed to voxel space and clipped to the volume
+    bounds so callers can iterate only the relevant subgrid.
+    """
+    homogeneous = np.hstack(
+        [world_corners, np.ones((world_corners.shape[0], 1), dtype=np.float64)]
+    )
+    voxel_corners = (inv_affine @ homogeneous.T).T[:, :3]
+    vmin = np.maximum(np.floor(voxel_corners.min(axis=0)).astype(int), 0)
+    vmax = np.minimum(
+        np.ceil(voxel_corners.max(axis=0)).astype(int) + 1,
+        np.asarray(shape, dtype=int),
+    )
+    return vmin, vmax
+
+
+def rasterize_sphere(shape, affine, world_center, world_radius):
+    """Rasterize a sphere into a binary voxel volume.
+
+    Parameters
+    ----------
+    shape : tuple of int
+        Output volume shape ``(nx, ny, nz)``.
+    affine : ndarray
+        4x4 voxel-to-world affine.
+    world_center : array-like of 3 floats
+        Sphere center in world coordinates.
+    world_radius : float
+        Sphere radius in world units.
+
+    Returns
+    -------
+    ndarray
+        ``uint8`` binary volume with voxels inside the sphere set to 1.
+    """
+    inv_affine = np.linalg.inv(affine)
+    cx, cy, cz = world_center
+    r = float(world_radius)
+    corners = np.array(
+        [
+            [cx + sx * r, cy + sy * r, cz + sz * r]
+            for sx in (-1, 1)
+            for sy in (-1, 1)
+            for sz in (-1, 1)
+        ],
+        dtype=np.float64,
+    )
+    vmin, vmax = _voxel_bbox_for_world_box(shape, inv_affine, corners)
+    volume = np.zeros(shape, dtype=np.uint8)
+    if np.any(vmin >= vmax):
+        return volume
+
+    xs = np.arange(vmin[0], vmax[0])
+    ys = np.arange(vmin[1], vmax[1])
+    zs = np.arange(vmin[2], vmax[2])
+    gx, gy, gz = np.meshgrid(xs, ys, zs, indexing="ij")
+    pts = np.stack(
+        [gx.ravel(), gy.ravel(), gz.ravel(), np.ones(gx.size, dtype=np.float64)],
+        axis=1,
+    )
+    world_pts = (affine @ pts.T).T[:, :3]
+    dists = np.linalg.norm(
+        world_pts - np.asarray(world_center, dtype=np.float64), axis=1
+    )
+    mask = dists <= r
+    volume[gx.ravel(), gy.ravel(), gz.ravel()] = mask.astype(np.uint8)
+    return volume
+
+
+def rasterize_cylinder(shape, affine, world_center, world_radius, axis, world_height):
+    """Rasterize an axis-aligned cylinder into a binary voxel volume.
+
+    The cylinder runs along the given world axis. In the perpendicular
+    plane it has the requested radius; along the axis it spans
+    ``world_height`` centred on ``world_center``.
+
+    Parameters
+    ----------
+    shape : tuple of int
+        Output volume shape ``(nx, ny, nz)``.
+    affine : ndarray
+        4x4 voxel-to-world affine.
+    world_center : array-like of 3 floats
+        Cylinder center in world coordinates.
+    world_radius : float
+        Radius in the plane perpendicular to ``axis`` (world units).
+    axis : int
+        World axis the cylinder runs along (0, 1, or 2).
+    world_height : float
+        Total length of the cylinder along ``axis``.
+
+    Returns
+    -------
+    ndarray
+        ``uint8`` binary volume with voxels inside the cylinder set to 1.
+    """
+    inv_affine = np.linalg.inv(affine)
+    half_h = float(world_height) / 2.0
+    r = float(world_radius)
+    extents = np.array([r, r, r], dtype=np.float64)
+    extents[axis] = half_h
+    cx, cy, cz = world_center
+    corners = np.array(
+        [
+            [
+                cx + sx * extents[0],
+                cy + sy * extents[1],
+                cz + sz * extents[2],
+            ]
+            for sx in (-1, 1)
+            for sy in (-1, 1)
+            for sz in (-1, 1)
+        ],
+        dtype=np.float64,
+    )
+    vmin, vmax = _voxel_bbox_for_world_box(shape, inv_affine, corners)
+    volume = np.zeros(shape, dtype=np.uint8)
+    if np.any(vmin >= vmax):
+        return volume
+
+    xs = np.arange(vmin[0], vmax[0])
+    ys = np.arange(vmin[1], vmax[1])
+    zs = np.arange(vmin[2], vmax[2])
+    gx, gy, gz = np.meshgrid(xs, ys, zs, indexing="ij")
+    pts = np.stack(
+        [gx.ravel(), gy.ravel(), gz.ravel(), np.ones(gx.size, dtype=np.float64)],
+        axis=1,
+    )
+    world_pts = (affine @ pts.T).T[:, :3]
+    delta = world_pts - np.asarray(world_center, dtype=np.float64)
+    along = delta[:, axis]
+    in_plane = np.delete(delta, axis, axis=1)
+    in_plane_dist = np.linalg.norm(in_plane, axis=1)
+    mask = (in_plane_dist <= r) & (np.abs(along) <= half_h)
+    volume[gx.ravel(), gy.ravel(), gz.ravel()] = mask.astype(np.uint8)
+    return volume
+
+
 def create_image_slicer(volume, *, affine=None, mode="auto", depth_write=True):
     """Create a 2D image from the provided NIfTI file.
 

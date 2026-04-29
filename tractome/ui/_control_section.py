@@ -1,11 +1,13 @@
 from PySide6.QtCore import QSize, Qt, Signal
-from PySide6.QtGui import QAction, QIcon
+from PySide6.QtGui import QAction, QColor, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QButtonGroup,
     QFrame,
     QGridLayout,
     QHBoxLayout,
     QLabel,
+    QListWidget,
+    QListWidgetItem,
     QMenu,
     QPushButton,
     QSizePolicy,
@@ -305,6 +307,314 @@ class ClustersWidget(QFrame):
             self._add_tractogram_visualizations()
 
 
+class RoiCreateWidget(QFrame):
+    """ROI EDIT panel shown while drawing in 2D mode.
+
+    Layout matches the design mock: a title, a four-button toolbar
+    (square / circle / brush / eraser), and a read-only Properties
+    panel listing the active ROI's name, visibility, type, voxel
+    position and color swatch.
+
+    Only the circle tool is wired up today (sphere ROI); the other
+    three are placeholders disabled at the UI level so the design
+    fits while the rasterizers for those modes are added later.
+
+    A single ROI is drawn per session — re-dragging overwrites the
+    same draft. Switching to 3D commits and runs the streamline
+    filter; there is no explicit Save button.
+    """
+
+    shape_changed = Signal(str)
+    edit_requested = Signal(str)
+
+    def __init__(self, *, parent=None):
+        super().__init__(parent)
+        self.setObjectName("roiCreateWidget")
+
+        self.main_layout = QVBoxLayout(self)
+        self.main_layout.setContentsMargins(12, 12, 12, 12)
+        self.main_layout.setSpacing(12)
+
+        self.title = QLabel("ROI EDIT")
+        self.title.setObjectName("roiCreateTitle")
+        self.main_layout.addWidget(self.title)
+
+        self._build_toolbar()
+        self._build_properties()
+        self._build_existing_list()
+
+    def _build_toolbar(self):
+        """Toolbar of 4 icon buttons.
+
+        ``square_roi`` and ``sphere_roi`` are wired to the cylinder
+        and sphere rasterizers respectively. ``edit_roi`` (brush) and
+        ``erase_roi`` are placeholders for future tools and stay
+        disabled at the UI level.
+        """
+        toolbar_row = QHBoxLayout()
+        toolbar_row.setSpacing(8)
+
+        self._tool_group = QButtonGroup(self)
+        self._tool_group.setExclusive(True)
+
+        # (key, icon-file, shape-name, tooltip, enabled). The shape
+        # name is what we emit on shape_changed and what flows down
+        # to the rasterizer; the icon file is read from ICONS_PATH.
+        # Brush and eraser are placeholders for future tools and stay
+        # disabled at the UI level. To edit an existing ROI today,
+        # select its row in the list below — the next drag rewrites
+        # that ROI rather than creating a new one.
+        tools = [
+            ("rectangle", "square_roi.svg", "cylinder", "Cylinder", True),
+            ("circle", "sphere_roi.svg", "sphere", "Sphere", True),
+            ("brush", "edit_roi.svg", None, "Brush (coming soon)", False),
+            ("eraser", "erase_roi.svg", None, "Eraser (coming soon)", False),
+        ]
+        self._tool_buttons = {}
+        self._tool_shape = {}
+        for key, icon_file, shape, tooltip, enabled in tools:
+            btn = QPushButton()
+            btn.setObjectName(f"roiTool_{key}")
+            btn.setProperty("class", "roiToolButton")
+            btn.setIcon(QIcon(str(ICONS_PATH / icon_file)))
+            btn.setIconSize(QSize(20, 20))
+            btn.setCheckable(True)
+            btn.setEnabled(enabled)
+            btn.setFixedSize(44, 44)
+            btn.setCursor(Qt.PointingHandCursor if enabled else Qt.ForbiddenCursor)
+            btn.setToolTip(tooltip)
+            if key == "circle":
+                btn.setChecked(True)
+            self._tool_group.addButton(btn)
+            self._tool_buttons[key] = btn
+            self._tool_shape[key] = shape
+            toolbar_row.addWidget(btn)
+        toolbar_row.addStretch()
+        self.main_layout.addLayout(toolbar_row)
+
+        # Each enabled tool emits its shape name on selection; the
+        # rasterizer in _on_roi_drawn branches on that name.
+        for key, btn in self._tool_buttons.items():
+            shape = self._tool_shape[key]
+            if shape is None:
+                continue
+            btn.toggled.connect(
+                lambda checked, s=shape: checked and self.shape_changed.emit(s)
+            )
+
+    def _build_properties(self):
+        """Properties pane: read-only labels showing the active ROI's metadata."""
+        props_title = QLabel("Properties")
+        props_title.setObjectName("roiPropsTitle")
+        self.main_layout.addWidget(props_title)
+
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(12)
+        grid.setVerticalSpacing(6)
+        grid.setColumnStretch(1, 1)
+
+        def _value_label(text):
+            label = QLabel(text)
+            label.setObjectName("roiPropValue")
+            return label
+
+        def _key_label(text):
+            label = QLabel(text)
+            label.setObjectName("roiPropKey")
+            return label
+
+        self._name_value = _value_label("–")
+        self._visibility_value = _value_label("On")
+        self._type_value = _value_label("–")
+        self._position_value = _value_label("–")
+
+        # Color swatch: a thin filled bar driven by stylesheet
+        # background-color. Default placeholder color until a draw
+        # commits a real one.
+        self._color_swatch = QFrame()
+        self._color_swatch.setObjectName("roiPropColor")
+        self._color_swatch.setFixedHeight(14)
+        self._color_swatch.setStyleSheet(
+            "background-color: rgb(80, 80, 80); border-radius: 7px;"
+        )
+
+        rows = [
+            ("Name", self._name_value),
+            ("Visibility", self._visibility_value),
+            ("Type", self._type_value),
+            ("Position", self._position_value),
+            ("Color", self._color_swatch),
+        ]
+        for row_index, (key, value_widget) in enumerate(rows):
+            grid.addWidget(_key_label(key), row_index, 0)
+            grid.addWidget(value_widget, row_index, 1)
+        self.main_layout.addLayout(grid)
+
+    def _build_existing_list(self):
+        """List of ROIs already drawn (across the whole session).
+
+        Each row carries the ROI's color as a small disk icon and
+        its name as the label. Selecting a row makes that ROI the
+        active edit target; the parent screen sets it as the draft
+        so the next drag rewrites that ROI in place.
+        """
+        list_title = QLabel("Existing ROIs")
+        list_title.setObjectName("roiPropsTitle")
+        self.main_layout.addWidget(list_title)
+
+        self._existing_list = QListWidget()
+        self._existing_list.setObjectName("roiExistingList")
+        self._existing_list.setSelectionMode(QListWidget.SingleSelection)
+        self._existing_list.setUniformItemSizes(True)
+        self._existing_list.setIconSize(QSize(14, 14))
+        self._existing_list.setMaximumHeight(140)
+        self._existing_list.itemSelectionChanged.connect(
+            self._on_existing_selection_changed
+        )
+        self.main_layout.addWidget(self._existing_list)
+
+        self._existing_empty_label = QLabel("No ROIs yet")
+        self._existing_empty_label.setObjectName("roiPropValue")
+        self._existing_empty_label.setVisible(True)
+        self.main_layout.addWidget(self._existing_empty_label)
+
+    @staticmethod
+    def _color_disk_icon(color):
+        """Return a small filled-circle QIcon tinted with ``color``.
+
+        ``color`` is an RGB triple in [0, 1]. Used to mirror the swatch
+        shown in the Properties pane on each list row.
+        """
+        pixmap = QPixmap(14, 14)
+        pixmap.fill(Qt.transparent)
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.Antialiasing)
+        try:
+            r, g, b = (int(max(0.0, min(1.0, float(c))) * 255) for c in color[:3])
+            painter.setBrush(QColor(r, g, b))
+            painter.setPen(Qt.NoPen)
+            painter.drawEllipse(1, 1, 12, 12)
+        finally:
+            painter.end()
+        return QIcon(pixmap)
+
+    def refresh_existing_rois(self, items):
+        """Rebuild the existing-ROIs list.
+
+        Parameters
+        ----------
+        items : list of dict
+            Each dict carries ``name`` (str) and ``color`` (RGB
+            triple in [0, 1]) for one ROI. Pass an empty list to
+            show the placeholder. Selection state is preserved
+            across calls when the previously-selected name still
+            exists in the new list.
+        """
+        previous_selected = self.selected_roi_name()
+
+        self._existing_list.blockSignals(True)
+        try:
+            self._existing_list.clear()
+            for entry in items:
+                name = str(entry.get("name", "ROI"))
+                # Use an explicit None check rather than ``or``: when
+                # the visualization manager returns a numpy array,
+                # the ``or`` truthiness test raises
+                # "truth value of an array is ambiguous".
+                color = entry.get("color")
+                if color is None:
+                    color = (0.5, 0.5, 0.5)
+                item = QListWidgetItem(self._color_disk_icon(color), name)
+                item.setData(Qt.UserRole, name)
+                self._existing_list.addItem(item)
+
+            if previous_selected is not None:
+                for row in range(self._existing_list.count()):
+                    item = self._existing_list.item(row)
+                    if item.data(Qt.UserRole) == previous_selected:
+                        item.setSelected(True)
+                        self._existing_list.setCurrentItem(item)
+                        break
+        finally:
+            self._existing_list.blockSignals(False)
+
+        self._existing_empty_label.setVisible(self._existing_list.count() == 0)
+
+    def selected_roi_name(self):
+        """Return the name of the currently-selected ROI, or None."""
+        item = self._existing_list.currentItem()
+        if item is None or not item.isSelected():
+            return None
+        return item.data(Qt.UserRole)
+
+    def clear_existing_selection(self):
+        """Deselect any selected row without firing edit_requested."""
+        self._existing_list.blockSignals(True)
+        try:
+            self._existing_list.clearSelection()
+            self._existing_list.setCurrentItem(None)
+        finally:
+            self._existing_list.blockSignals(False)
+
+    def _on_existing_selection_changed(self):
+        """Forward the new selection — or its absence — to the parent."""
+        name = self.selected_roi_name()
+        # Empty string signals "no selection — next drag is a new ROI";
+        # a non-empty name asks the parent to make that ROI the draft.
+        self.edit_requested.emit(name or "")
+
+    def current_shape(self):
+        """Return the active drawing shape name.
+
+        Reads from whichever toolbar button is currently checked.
+        Square = cylinder, Circle = sphere; brush and eraser have
+        no rasterizer yet and fall through to the default sphere.
+        """
+        for key, btn in self._tool_buttons.items():
+            if btn.isChecked():
+                shape = self._tool_shape.get(key)
+                if shape is not None:
+                    return shape
+        return "sphere"
+
+    def set_properties(
+        self, *, name=None, visibility=None, type_=None, position=None, color=None
+    ):
+        """Update the properties pane with the active ROI's metadata.
+
+        All arguments are optional; pass only the fields that
+        actually changed. ``position`` is expected to be an iterable
+        of three voxel indices; ``color`` is an RGB triple in [0, 1].
+        """
+        if name is not None:
+            self._name_value.setText(str(name))
+        if visibility is not None:
+            self._visibility_value.setText("On" if visibility else "Off")
+        if type_ is not None:
+            self._type_value.setText(str(type_))
+        if position is not None:
+            try:
+                px, py, pz = (int(round(v)) for v in position)
+                self._position_value.setText(f"[{px} {py} {pz}]")
+            except Exception:
+                self._position_value.setText(str(position))
+        if color is not None:
+            r, g, b = (int(max(0, min(1, c)) * 255) for c in color[:3])
+            self._color_swatch.setStyleSheet(
+                f"background-color: rgb({r}, {g}, {b}); border-radius: 7px;"
+            )
+
+    def reset_properties(self):
+        """Clear the properties pane back to placeholder values."""
+        self._name_value.setText("–")
+        self._visibility_value.setText("On")
+        self._type_value.setText("–")
+        self._position_value.setText("–")
+        self._color_swatch.setStyleSheet(
+            "background-color: rgb(80, 80, 80); border-radius: 7px;"
+        )
+
+
 class LeftSectionWidget(QFrame):
     """The Sidebar container that holds the control modules."""
 
@@ -325,14 +635,20 @@ class LeftSectionWidget(QFrame):
         self.roi_input_widget = RoiInputWidget(parent=self)
         self.main_layout.addWidget(self.roi_input_widget)
 
+        self.roi_create_widget = RoiCreateWidget(parent=self)
+        self.roi_create_widget.setVisible(False)
+        self.main_layout.addWidget(self.roi_create_widget)
+
         self.main_layout.addStretch()
 
     def update_controls_for_visualization(self):
         """Show/hide controls depending on visualization type and view mode."""
         is_3d = state_manager.view_mode == "3D"
+        is_create_mode = state_manager.roi_create_mode is not None
         has_tractogram_input = input_manager.has_tractogram
         self.clusters_box.setVisible(is_3d and has_tractogram_input)
-        self.roi_input_widget.setVisible(is_3d)
+        self.roi_input_widget.setVisible(is_3d and not is_create_mode)
+        self.roi_create_widget.setVisible(is_create_mode)
 
         if has_tractogram_input:
             self._sync_clusters_from_latest_state()
