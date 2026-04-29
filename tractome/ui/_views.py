@@ -170,8 +170,29 @@ class InteractionScreen(QWidget):
             self._right_section.image_input_widget.emit_current_slices()
         self._right_section.image_input_widget.sync_t1_visibility_button()
 
+        # The 2D scene caches its own T1/ROI/projection actors built
+        # from the previously-current T1; without this rebuild a subject
+        # change made while in 2D mode keeps the old image on screen
+        # until the user toggles 3D→2D (which calls the same rebuild
+        # via _on_view_mode_changed). The new T1's bounding box also
+        # differs, so the camera needs to be re-framed against the new
+        # actor, otherwise it would still be sized for the previous one.
+        if state_manager.view_mode == "2D":
+            self._build_2d_scene_contents()
+            self._center_section.orient_2d_camera_to_active_slice()
+            self._center_section.show_manager.render()
+
     def _on_t1_visibility_changed(self):
-        """Re-render after toggling T1 visibility in the scene."""
+        """Re-render after toggling T1 visibility in the scene.
+
+        In 2D mode the same signal also fires when the user picks a new
+        active axis via the radio buttons, so the orthographic camera is
+        re-aimed at the new slice plane before rendering. Without this
+        the camera keeps the orientation it had when 2D mode was first
+        entered and the new plane shows up edge-on.
+        """
+        if state_manager.view_mode == "2D":
+            self._center_section.orient_2d_camera_to_active_slice()
         self._center_section.show_manager.render()
 
     def _on_t1_slices_changed(self, x, y, z):

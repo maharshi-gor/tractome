@@ -258,14 +258,7 @@ class CenterSectionWidget(QFrame):
             screen.controller = self._2D_controller
             self._3D_controller.enabled = False
             self._2D_controller.enabled = True
-            t1_actor = self._2D_scene_t1_actor()
-            if t1_actor is not None:
-                self._2D_camera.show_object(
-                    t1_actor,
-                    tuple(
-                        -1 * np.asarray(state_manager.t1_slice_visibility_2d, dtype=int)
-                    ),
-                )
+            self.orient_2d_camera_to_active_slice()
         else:
             screen.scene = self._3D_scene
             screen.camera = self._3D_camera
@@ -282,6 +275,35 @@ class CenterSectionWidget(QFrame):
         if not t1_viz:
             return None
         return t1_viz[0]
+
+    def orient_2d_camera_to_active_slice(self):
+        """Aim the 2D orthographic camera down the currently active slice axis.
+
+        Reads ``state_manager.t1_slice_visibility_2d`` (a 3-tuple of
+        booleans, exactly one of which is True in 2D mode) and frames the
+        T1 slicer so the visible plane faces the camera. Without this the
+        camera keeps the orientation it had when 2D mode was first
+        entered, so toggling the X/Y/Z radio leaves the camera looking
+        edge-on at the new plane.
+
+        ``up`` is passed explicitly because ``show_object`` otherwise
+        keeps the camera's current up vector — and going e.g. X → Y, the
+        previous up (+Y) ends up parallel to the new view direction
+        (along Y). pygfx then has no valid right-axis to build the view
+        basis and the slice renders off-frame / edge-on. The convention
+        used here matches a standard slice viewer: axial (Z) views use
+        +Y as up, sagittal (X) and coronal (Y) views use +Z.
+        """
+        t1_actor = self._2D_scene_t1_actor()
+        if t1_actor is None:
+            return
+        visibility = np.asarray(state_manager.t1_slice_visibility_2d, dtype=int)
+        if not np.any(visibility):
+            return
+        active_axis = int(np.argmax(visibility))
+        view_direction = tuple((-1 * visibility).tolist())
+        up = (0.0, 1.0, 0.0) if active_axis == 2 else (0.0, 0.0, 1.0)
+        self._2D_camera.show_object(t1_actor, view_direction, up=up)
 
     def _refresh_overlays(self):
         """Force the Qt overlays to fully repaint after a scene update.
