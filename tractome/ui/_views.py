@@ -117,6 +117,12 @@ class InteractionScreen(QWidget):
         self._right_section.mesh_input_widget.mesh_material_changed.connect(
             self._on_mesh_material_changed
         )
+        self._right_section.mesh_input_widget.mesh_projection_changed.connect(
+            self._on_mesh_projection_changed
+        )
+        self._right_section.mesh_input_widget.mesh_projection_threshold_changed.connect(
+            self._on_mesh_projection_threshold_changed
+        )
         self._right_section.parcel_input_widget.parcel_changed.connect(
             self._on_parcel_changed
         )
@@ -155,6 +161,8 @@ class InteractionScreen(QWidget):
         main_layout.addWidget(self._left_section, 1)
         main_layout.addWidget(self._center_section, 3)
         main_layout.addWidget(self._right_section, 1)
+
+        visualization_manager.set_wgpu_device(self._center_section.show_manager.device)
 
     def _on_t1_changed(self):
         """Refresh T1 visualization and reset slices for current T1."""
@@ -210,6 +218,13 @@ class InteractionScreen(QWidget):
             self.add_visualization(mesh_vis, visualization_type="mesh")
         self._right_section.mesh_input_widget.sync_mesh_visibility_button()
 
+        proj_viz = visualization_manager.mesh_projection_visualizations
+        if proj_viz:
+            self.remove_visualization(proj_viz, visualization_type="mesh_projection")
+        visualization_manager.clear_mesh_projection()
+        if state_manager.mesh_project:
+            self._on_mesh_projection_changed(True)
+
     def _on_mesh_visibility_changed(self):
         """Re-render after toggling mesh visibility."""
         self._center_section.show_manager.render()
@@ -220,7 +235,7 @@ class InteractionScreen(QWidget):
         self._center_section.show_manager.render()
 
     def _on_mesh_material_changed(self):
-        """Rebuild mesh when Photographic/Project material mode changes."""
+        """Rebuild mesh when the Photographic toggle changes."""
         if not input_manager.has_mesh:
             return
         mesh_viz = visualization_manager.mesh_visualizations
@@ -230,6 +245,58 @@ class InteractionScreen(QWidget):
         if mesh_vis is not None:
             self.add_visualization(mesh_vis, visualization_type="mesh")
         self._right_section.mesh_input_widget.sync_mesh_visibility_button()
+
+    def _refresh_mesh_projection_if_active(self):
+        """Rebuild the projection actor from the current tractogram state.
+
+        No-op when Project is off or prerequisites are missing. Called from
+        any handler that mutates which streamlines are active or how they're
+        coloured (ROI filter, re-cluster, cluster visibility, etc.).
+        """
+        if not state_manager.mesh_project:
+            return
+        old_viz, new_viz = visualization_manager.rebuild_mesh_projection()
+        if old_viz:
+            self.remove_visualization(old_viz, visualization_type="mesh_projection")
+        if new_viz is None:
+            return
+        self.add_visualization(new_viz, visualization_type="mesh_projection")
+        visualization_manager.update_mesh_projection(
+            state_manager.mesh_projection_threshold
+        )
+        self._center_section.show_manager.render()
+
+    def _on_mesh_projection_changed(self, enabled):
+        """Toggle GPU projection of streamline points onto the mesh surface."""
+        if not enabled:
+            visualization_manager.set_mesh_projection_visible(False)
+            self._center_section.show_manager.render()
+            return
+
+        # Always rebuild from current state on enable: cluster colors, ROI
+        # filter, or visibility may have changed while Project was off.
+        old_viz, new_viz = visualization_manager.rebuild_mesh_projection()
+        if old_viz:
+            self.remove_visualization(old_viz, visualization_type="mesh_projection")
+        if new_viz is None:
+            # Missing mesh, tractogram, or device — nothing to show.
+            return
+        # add_visualization renders, which materializes the GPU buffer
+        # so we can bind it as compute output on the next call.
+        self.add_visualization(new_viz, visualization_type="mesh_projection")
+        visualization_manager.update_mesh_projection(
+            state_manager.mesh_projection_threshold
+        )
+        self._center_section.show_manager.render()
+
+    def _on_mesh_projection_threshold_changed(self, threshold):
+        """Re-dispatch the projection compute pass with a new threshold."""
+        if not state_manager.mesh_project:
+            return
+        if visualization_manager.mesh_projection_visualizations is None:
+            return
+        visualization_manager.update_mesh_projection(threshold)
+        self._center_section.show_manager.render()
 
     def _on_parcel_changed(self):
         """Reload parcel actor when the file selection changes."""
@@ -280,6 +347,7 @@ class InteractionScreen(QWidget):
             )
             if tractogram_vis is not None:
                 self.add_visualization(tractogram_vis, visualization_type="tractogram")
+            self._refresh_mesh_projection_if_active()
 
     def _on_roi_visibility_changed(self):
         """Re-render after toggling per-ROI visibility."""

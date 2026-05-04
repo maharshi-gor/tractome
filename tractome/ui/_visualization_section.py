@@ -610,6 +610,7 @@ class CenterSectionWidget(QFrame):
         event : Event
             The key stroke event.
         """
+        cluster_state_changed = False
         if event.key == "e":
             self.remove_visualization(
                 visualization_manager.tractogram_visualizations,
@@ -620,6 +621,7 @@ class CenterSectionWidget(QFrame):
                 visualization_manager.tractogram_visualizations,
                 visualization_type="tractogram",
             )
+            cluster_state_changed = True
         elif event.key == "c":
             self.remove_visualization(
                 visualization_manager.tractogram_visualizations,
@@ -630,16 +632,22 @@ class CenterSectionWidget(QFrame):
                 visualization_manager.tractogram_visualizations,
                 visualization_type="tractogram",
             )
+            cluster_state_changed = True
         elif event.key == "h":
             visualization_manager.hide_clusters()
+            cluster_state_changed = True
         elif event.key == "s":
             visualization_manager.show_clusters()
+            cluster_state_changed = True
         elif event.key == "a":
             visualization_manager.select_all_clusters()
+            cluster_state_changed = True
         elif event.key == "n":
             visualization_manager.select_none_clusters()
+            cluster_state_changed = True
         elif event.key == "i":
             visualization_manager.swap_clusters()
+            cluster_state_changed = True
         elif event.key == "d":
             self.remove_visualization(
                 visualization_manager.tractogram_visualizations,
@@ -650,5 +658,12 @@ class CenterSectionWidget(QFrame):
                 visualization_manager.tractogram_visualizations,
                 visualization_type="tractogram",
             )
+            cluster_state_changed = True
         elif event.key == "x":
             self._keystroke_card.setVisible(not self._keystroke_card.isVisible())
+
+        if cluster_state_changed:
+            screen = self.parent()
+            refresh = getattr(screen, "_refresh_mesh_projection_if_active", None)
+            if callable(refresh):
+                refresh()

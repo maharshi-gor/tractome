@@ -385,6 +385,8 @@ class MeshInputWidget(QFrame):
     mesh_changed = Signal()
     mesh_visibility_changed = Signal()
     mesh_material_changed = Signal()
+    mesh_projection_changed = Signal(bool)
+    mesh_projection_threshold_changed = Signal(float)
     mesh_opacity_changed = Signal(int)
 
     def __init__(self, *, parent=None):
@@ -482,6 +484,39 @@ class MeshInputWidget(QFrame):
         self.material_row.addStretch()
         mesh_controls_layout.addLayout(self.material_row)
 
+        self._projection_controls = QWidget()
+        projection_layout = QVBoxLayout(self._projection_controls)
+        projection_layout.setContentsMargins(0, 0, 0, 0)
+        projection_layout.setSpacing(4)
+
+        projection_header = QHBoxLayout()
+        self.projection_label = QLabel("Projection threshold")
+        self.projection_label.setObjectName("meshOpacityLabel")
+        projection_header.addWidget(self.projection_label)
+        projection_header.addStretch()
+        self.projection_value_label = QLabel("2.5")
+        self.projection_value_label.setObjectName("meshOpacityTickLabel")
+        projection_header.addWidget(self.projection_value_label)
+        projection_layout.addLayout(projection_header)
+
+        projection_slider_row = QHBoxLayout()
+        self.projection_min_label = QLabel("1")
+        self.projection_min_label.setObjectName("meshOpacityTickLabel")
+        # Slider stores tenths of a mm (0.1 mm steps over 1.0..5.0).
+        self.projection_threshold_slider = QSlider(Qt.Horizontal)
+        self.projection_threshold_slider.setObjectName("meshProjectionSlider")
+        self.projection_threshold_slider.setRange(10, 50)
+        self.projection_threshold_slider.setValue(25)
+        self.projection_max_label = QLabel("5")
+        self.projection_max_label.setObjectName("meshOpacityTickLabel")
+        projection_slider_row.addWidget(self.projection_min_label)
+        projection_slider_row.addWidget(self.projection_threshold_slider)
+        projection_slider_row.addWidget(self.projection_max_label)
+        projection_layout.addLayout(projection_slider_row)
+
+        mesh_controls_layout.addWidget(self._projection_controls)
+        self._projection_controls.setVisible(False)
+
         self.main_layout.addWidget(self._mesh_controls)
 
         self.mesh_upload_button.setCursor(Qt.PointingHandCursor)
@@ -495,6 +530,19 @@ class MeshInputWidget(QFrame):
         self.opacity_slider.valueChanged.connect(self._on_opacity_changed)
         self.photographic_checkbox.toggled.connect(self._on_photographic_toggled)
         self.project_checkbox.toggled.connect(self._on_project_toggled)
+        self.projection_threshold_slider.valueChanged.connect(
+            self._on_projection_threshold_changed
+        )
+
+        # Debounce GPU dispatch so dragging the slider doesn't fire one compute
+        # pass per pixel. The label and state update immediately; the signal
+        # that triggers PointProjection.dispatch only fires once the user pauses.
+        self._projection_threshold_debounce = QTimer(self)
+        self._projection_threshold_debounce.setSingleShot(True)
+        self._projection_threshold_debounce.setInterval(150)
+        self._projection_threshold_debounce.timeout.connect(
+            self._emit_projection_threshold
+        )
 
         self._poll_timer = QTimer(self)
         self._poll_timer.setInterval(500)
@@ -534,54 +582,39 @@ class MeshInputWidget(QFrame):
     def _update_mesh_controls_visibility(self):
         self._mesh_controls.setVisible(input_manager.has_mesh)
 
-    def _apply_mesh_mode_from_checkboxes(self):
-        if self.photographic_checkbox.isChecked():
-            state_manager.mesh_mode = "photographic"
-        elif self.project_checkbox.isChecked():
-            state_manager.mesh_mode = "project"
-        else:
-            state_manager.mesh_mode = "photographic"
-
     def _sync_material_checkboxes_from_state(self):
         self.photographic_checkbox.blockSignals(True)
         self.project_checkbox.blockSignals(True)
-        mode = state_manager.mesh_mode
-        if mode == "photographic":
-            self.photographic_checkbox.setChecked(True)
-            self.project_checkbox.setChecked(False)
-        elif mode == "project":
-            self.photographic_checkbox.setChecked(False)
-            self.project_checkbox.setChecked(True)
-        else:
-            # Legacy "normals" was the Project / phong path before mode rename
-            self.photographic_checkbox.setChecked(False)
-            self.project_checkbox.setChecked(True)
+        self.projection_threshold_slider.blockSignals(True)
+        self.photographic_checkbox.setChecked(bool(state_manager.mesh_photographic))
+        self.project_checkbox.setChecked(bool(state_manager.mesh_project))
+        threshold = float(state_manager.mesh_projection_threshold)
+        self.projection_threshold_slider.setValue(int(round(threshold * 10)))
+        self.projection_value_label.setText(f"{threshold:.1f}")
+        self._projection_controls.setVisible(bool(state_manager.mesh_project))
         self.photographic_checkbox.blockSignals(False)
         self.project_checkbox.blockSignals(False)
+        self.projection_threshold_slider.blockSignals(False)
 
     def _on_photographic_toggled(self, checked):
-        if checked:
-            self.project_checkbox.blockSignals(True)
-            self.project_checkbox.setChecked(False)
-            self.project_checkbox.blockSignals(False)
-        elif not self.project_checkbox.isChecked():
-            self.project_checkbox.blockSignals(True)
-            self.project_checkbox.setChecked(True)
-            self.project_checkbox.blockSignals(False)
-        self._apply_mesh_mode_from_checkboxes()
+        state_manager.mesh_photographic = bool(checked)
         self.mesh_material_changed.emit()
 
     def _on_project_toggled(self, checked):
-        if checked:
-            self.photographic_checkbox.blockSignals(True)
-            self.photographic_checkbox.setChecked(False)
-            self.photographic_checkbox.blockSignals(False)
-        elif not self.photographic_checkbox.isChecked():
-            self.photographic_checkbox.blockSignals(True)
-            self.photographic_checkbox.setChecked(True)
-            self.photographic_checkbox.blockSignals(False)
-        self._apply_mesh_mode_from_checkboxes()
-        self.mesh_material_changed.emit()
+        state_manager.mesh_project = bool(checked)
+        self._projection_controls.setVisible(bool(checked))
+        self.mesh_projection_changed.emit(bool(checked))
+
+    def _on_projection_threshold_changed(self, slider_value):
+        threshold = float(slider_value) / 10.0
+        state_manager.mesh_projection_threshold = threshold
+        self.projection_value_label.setText(f"{threshold:.1f}")
+        self._projection_threshold_debounce.start()
+
+    def _emit_projection_threshold(self):
+        self.mesh_projection_threshold_changed.emit(
+            float(state_manager.mesh_projection_threshold)
+        )
 
     def _on_opacity_changed(self, value):
         state_manager.mesh_opacity = value

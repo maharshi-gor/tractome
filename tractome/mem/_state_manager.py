@@ -42,7 +42,9 @@ class StateManager:
         self.t1_slice_visibility = [True, True, True]
         self.t1_slice_visibility_2d = [False, False, True]
         self.view_mode = "3D"
-        self.mesh_mode = "photographic"
+        self.mesh_photographic = True
+        self.mesh_project = False
+        self.mesh_projection_threshold = 2.5
         self.mesh_opacity = 100
         self.mesh_visible = True
         self.parcel_size = 100

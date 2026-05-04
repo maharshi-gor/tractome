@@ -119,12 +119,52 @@ QCheckBox::indicator:checked {
     border-radius: 12px;
 }
 
+#fibersWidget {
+    background-color: #1e1e1e;
+    border: 2px solid #e87722;
+    border-radius: 12px;
+}
+
+#fiberCaptureButton {
+    background-color: #2b2b2b;
+    border: 2px solid #747474;
+    border-radius: 8px;
+    padding: 4px;
+}
+
+#fiberCaptureButton:hover {
+    border-color: #e87722;
+}
+
+#fiberCountInput:disabled {
+    color: #ffffff;
+    background-color: #1e1e1e;
+    border: 2px solid #747474;
+    font-size: 12pt;
+    border-radius: 8px;
+    padding: 2px;
+    qproperty-alignment: 'AlignCenter';
+}
+
+#fiberStepButton {
+    font-size: 4pt;
+    border-radius: 8px;
+}
+
+#fiberStepButton:disabled,
+#fiberRecoveryButton:disabled {
+    background-color: #575757;
+    color: #ffffff;
+    border: 2px solid #747474;
+}
+
 #imageTitle,
 #meshTitle,
 #parcelTitle,
 #roiTitle,
 #roiCreateTitle,
 #clustersTitle,
+#fibersTitle,
 #viewModeTitle {
 	color: #ffffff;
 	font-weight: bold;

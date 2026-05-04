@@ -75,7 +75,7 @@ def create_roi(roi_data, *, affine=None, color=(1, 0, 0)):
     return roi
 
 
-def create_mesh(mesh_obj, *, texture=None, mode="photographic"):
+def create_mesh(mesh_obj, *, texture=None, photographic=True):
     """Create a 3D mesh from the provided mesh object.
 
     Parameters
@@ -84,21 +84,15 @@ def create_mesh(mesh_obj, *, texture=None, mode="photographic"):
         The input mesh object to be converted.
     texture : str or None, optional
         Path to the texture image for the mesh.
-    mode : str, optional
-        ``photographic`` uses basic shading; ``project`` uses phong shading.
-        Legacy alias: ``normals`` is treated as ``project``.
+    photographic : bool, optional
+        When True (default) use basic shading suitable for textured photographic
+        rendering; when False use phong shading with vertex normals.
 
     Returns
     -------
     Mesh
         The created 3D mesh.
     """
-    mode = mode.lower()
-    if mode == "normals":
-        mode = "project"
-    if mode not in ("photographic", "project"):
-        raise ValueError(f"Unknown mode: {mode}")
-
     vertices = mesh_obj.vertices * 1
     faces = mesh_obj.faces
 
@@ -116,7 +110,7 @@ def create_mesh(mesh_obj, *, texture=None, mode="photographic"):
     mesh = actor.surface(
         vertices,
         faces,
-        material="basic" if mode == "photographic" else "phong",
+        material="basic" if photographic else "phong",
         texture=texture,
         texture_coords=texture_coords,
         normals=normals,

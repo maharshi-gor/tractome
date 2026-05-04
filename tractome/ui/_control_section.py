@@ -106,6 +106,92 @@ class ViewModeWidget(QFrame):
         self.btn_2d.blockSignals(False)
 
 
+class FibersWidget(QFrame):
+    """Placeholder Fibers panel.
+
+    Mirrors the layout of :class:`ClustersWidget` but with the count
+    input, step arrows and Recovery button disabled — only the
+    capture button is interactive today. Logic for the disabled
+    controls will be wired up in follow-up work.
+    """
+
+    def __init__(self, *, parent=None):
+        super().__init__(parent)
+        self.setObjectName("fibersWidget")
+
+        self.main_layout = QVBoxLayout(self)
+        self.main_layout.setContentsMargins(8, 8, 8, 8)
+        self.main_layout.setSpacing(8)
+
+        self.title = QLabel("FIBERS")
+        self.title.setObjectName("fibersTitle")
+        self.main_layout.addWidget(self.title)
+
+        std_h = 38
+
+        self.btn_capture = QPushButton()
+        self.btn_capture.setObjectName("fiberCaptureButton")
+        self.btn_capture.setIcon(QIcon(str(ICONS_PATH / "capture.svg")))
+        self.btn_capture.setIconSize(QSize(20, 14))
+        self.btn_capture.setFixedSize(44, 44)
+        self.btn_capture.setCursor(Qt.PointingHandCursor)
+        self.btn_capture.setToolTip("Capture fibers")
+
+        capture_row = QHBoxLayout()
+        capture_row.setContentsMargins(0, 0, 0, 0)
+        capture_row.setSpacing(0)
+        capture_row.addWidget(self.btn_capture)
+        capture_row.addStretch()
+        self.main_layout.addLayout(capture_row)
+
+        self.grid = QGridLayout()
+        self.grid.setSpacing(6)
+        self.grid.setContentsMargins(0, 0, 0, 0)
+
+        self.count_input = QSpinBox()
+        self.count_input.setObjectName("fiberCountInput")
+        self.count_input.setRange(1, 100000)
+        self.count_input.setValue(100)
+        self.count_input.setButtonSymbols(QSpinBox.NoButtons)
+        self.count_input.setFixedHeight(std_h)
+        self.count_input.setMinimumWidth(56)
+        self.count_input.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Fixed)
+        self.count_input.setEnabled(False)
+        self.grid.addWidget(self.count_input, 0, 0)
+
+        step_layout = QVBoxLayout()
+        step_layout.setSpacing(2)
+        self.btn_up = QPushButton("")
+        self.btn_down = QPushButton("")
+        self.btn_up.setIcon(QIcon(str(ICONS_PATH / "arrow_up.svg")))
+        self.btn_down.setIcon(QIcon(str(ICONS_PATH / "arrow_down.svg")))
+        self.btn_up.setIconSize(QSize(12, 12))
+        self.btn_down.setIconSize(QSize(12, 12))
+        self.btn_up.setObjectName("fiberStepButton")
+        self.btn_down.setObjectName("fiberStepButton")
+        self.btn_up.setFixedSize(33, (std_h // 2) - 1)
+        self.btn_down.setFixedSize(33, (std_h // 2) - 1)
+        self.btn_up.setEnabled(False)
+        self.btn_down.setEnabled(False)
+        step_layout.addWidget(self.btn_up)
+        step_layout.addWidget(self.btn_down)
+        self.grid.addLayout(step_layout, 0, 1)
+
+        self.btn_recovery = QPushButton("Recovery")
+        self.btn_recovery.setObjectName("fiberRecoveryButton")
+        self.btn_recovery.setFixedHeight(std_h)
+        self.btn_recovery.setMinimumWidth(70)
+        self.btn_recovery.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.btn_recovery.setEnabled(False)
+        self.grid.addWidget(self.btn_recovery, 0, 2)
+
+        self.grid.setColumnStretch(0, 1)
+        self.grid.setColumnStretch(1, 0)
+        self.grid.setColumnStretch(2, 1)
+
+        self.main_layout.addLayout(self.grid)
+
+
 class ClustersWidget(QFrame):
     """Refined, compact version of the Cluster controls."""
 
@@ -260,10 +346,12 @@ class ClustersWidget(QFrame):
     def _add_tractogram_visualizations(self):
         """Add the tractogram visualizations."""
         parent = self.parent()
-        parent.parent().add_visualization(
+        screen = parent.parent()
+        screen.add_visualization(
             visualization_manager.tractogram_visualizations,
             visualization_type="tractogram",
         )
+        screen._refresh_mesh_projection_if_active()
 
     def _on_prev_state(self):
         """Handle the 'Previous State' button click."""
@@ -297,14 +385,22 @@ class ClustersWidget(QFrame):
             self._remove_tractogram_visualizations()
             visualization_manager.delete_clusters()
             self._add_tractogram_visualizations()
+            return
         elif action_name == "Expand":
             self._remove_tractogram_visualizations()
             visualization_manager.expand_clusters()
             self._add_tractogram_visualizations()
+            return
         elif action_name == "Collapse":
             self._remove_tractogram_visualizations()
             visualization_manager.collapse_clusters()
             self._add_tractogram_visualizations()
+            return
+
+        # Visibility-only mutations (Show/Hide/All/None/Swap) don't go through
+        # remove/add of the tractogram visualization, so refresh the projection
+        # explicitly to track the new visible-cluster set.
+        self.parent().parent()._refresh_mesh_projection_if_active()
 
 
 class RoiCreateWidget(QFrame):
@@ -629,6 +725,9 @@ class LeftSectionWidget(QFrame):
         self.view_mode_widget = ViewModeWidget(parent=self)
         self.main_layout.addWidget(self.view_mode_widget)
 
+        self.fibers_box = FibersWidget(parent=self)
+        self.main_layout.addWidget(self.fibers_box)
+
         self.clusters_box = ClustersWidget(parent=self)
         self.main_layout.addWidget(self.clusters_box)
 
@@ -646,6 +745,7 @@ class LeftSectionWidget(QFrame):
         is_3d = state_manager.view_mode == "3D"
         is_create_mode = state_manager.roi_create_mode is not None
         has_tractogram_input = input_manager.has_tractogram
+        self.fibers_box.setVisible(is_3d and has_tractogram_input)
         self.clusters_box.setVisible(is_3d and has_tractogram_input)
         self.roi_input_widget.setVisible(is_3d and not is_create_mode)
         self.roi_create_widget.setVisible(is_create_mode)

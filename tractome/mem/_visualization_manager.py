@@ -3,7 +3,7 @@ import os
 from dipy.tracking.distances import bundles_distances_mam
 import numpy as np
 
-from fury import distinguishable_colormap
+from fury import actor as _fury_actor, distinguishable_colormap
 from fury.actor import set_group_visibility, show_slices
 from tractome.compute import (
     calculate_filter,
@@ -12,6 +12,7 @@ from tractome.compute import (
     mkbm_clustering,
     transform_roi_to_world_grid,
 )
+from tractome.gpu import PointProjection
 from tractome.mem import ClusterState, input_manager, state_manager
 from tractome.viz import (
     create_image_slicer,
@@ -53,6 +54,7 @@ class VisualizationManager:
             "tractogram": None,
             "t1": None,
             "mesh": None,
+            "mesh_projection": None,
             "roi": [],
             "parcel": None,
         }
@@ -66,6 +68,10 @@ class VisualizationManager:
         self._roi_visibility = {}
         self._roi_applied = {}
         self._roi_negated = {}
+        self._wgpu_device = None
+        self._mesh_projection = None
+        self._mesh_projection_bound = False
+        self._mesh_projection_n_points = 0
 
     def visualize_t1(self):
         """Visualize the T1 image.
@@ -228,10 +234,11 @@ class VisualizationManager:
             return None
 
         mesh_obj, texture_path, _, _ = input_manager.get_current_mesh()
-        mode = state_manager.mesh_mode
-        if mode not in ("normals", "photographic"):
-            mode = "normals"
-        mesh_actor = create_mesh(mesh_obj, texture=texture_path, mode=mode)
+        mesh_actor = create_mesh(
+            mesh_obj,
+            texture=texture_path,
+            photographic=state_manager.mesh_photographic,
+        )
         mesh_actor.visible = state_manager.mesh_visible
         opacity = state_manager.mesh_opacity / 100.0
         mesh_actor.material.opacity = opacity
@@ -281,6 +288,172 @@ class VisualizationManager:
         if not mesh:
             return True
         return bool(mesh[0].visible)
+
+    # ------------------------------------------------------------- mesh projection
+    def set_wgpu_device(self, device):
+        """Register the wgpu device used by the GPU projection pipeline."""
+        self._wgpu_device = device
+
+    @property
+    def mesh_projection_visualizations(self):
+        return self._visualizations["mesh_projection"]
+
+    def _gather_streamline_points(self):
+        """Return (points, colors) for all currently-clustered streamlines.
+
+        Colors come from the cluster each streamline belongs to; a streamline
+        not present in any cluster (e.g. filtered out by an ROI) is excluded.
+        Falls back to all streamlines in white if no clustering exists yet.
+        """
+        if not input_manager.has_tractogram:
+            return None, None
+        sft, _, _, _ = input_manager.get_current_tractogram()
+        streamlines = sft.streamlines
+        if len(streamlines) == 0:
+            return None, None
+
+        clusters_exist = (
+            state_manager.has_states()
+            and state_manager.get_latest_state().tractogram_states is not None
+        )
+
+        color_map = {}
+        if clusters_exist:
+            for (
+                state_data
+            ) in state_manager.get_latest_state().tractogram_states.values():
+                if not state_data.get("visible", True):
+                    continue
+                color = np.asarray(state_data["color"], dtype=np.float32).ravel()[:3]
+                for sid in state_data["streamline_ids"]:
+                    color_map[int(sid)] = color
+
+        if color_map:
+            sids = sorted(color_map)
+            selected = [
+                np.asarray(streamlines[sid], dtype=np.float32).reshape(-1, 3)
+                for sid in sids
+            ]
+            lengths = np.fromiter(
+                (len(s) for s in selected), dtype=np.int64, count=len(selected)
+            )
+            pts = np.concatenate(selected, axis=0)
+            color_arr = np.stack([color_map[sid] for sid in sids], axis=0)
+            colors = np.repeat(color_arr, lengths, axis=0)
+            return pts, colors
+
+        if clusters_exist:
+            # Clusters were built but nothing is currently visible — nothing
+            # to project. Distinguish from the pre-clustering bootstrap below.
+            return None, None
+
+        # Pre-clustering bootstrap: project all streamlines in white. Only
+        # reached on the very first projection before any clustering has run.
+        pts = np.concatenate(
+            [np.asarray(s, dtype=np.float32).reshape(-1, 3) for s in streamlines],
+            axis=0,
+        )
+        colors = np.broadcast_to(
+            np.array([1.0, 1.0, 1.0], dtype=np.float32), pts.shape
+        ).copy()
+        return pts, colors
+
+    def visualize_mesh_projection(self):
+        """Build the projected-points actor and seed the GPU projection state.
+
+        Returns a single-element list with the actor, or None if prerequisites
+        (mesh, tractogram, registered wgpu device) are missing. The caller is
+        expected to add the actor to the scene and trigger a render BEFORE
+        calling :meth:`update_mesh_projection`, so the actor's GPU position
+        buffer is materialized and can be bound as compute output.
+        """
+        if self._wgpu_device is None:
+            return None
+        if not input_manager.has_mesh or not input_manager.has_tractogram:
+            self._visualizations["mesh_projection"] = None
+            return None
+        pts, colors = self._gather_streamline_points()
+        if pts is None:
+            self._visualizations["mesh_projection"] = None
+            return None
+
+        mesh_obj, _, _, _ = input_manager.get_current_mesh()
+
+        if self._mesh_projection is None:
+            self._mesh_projection = PointProjection(self._wgpu_device)
+        self._mesh_projection.set_mesh(
+            np.asarray(mesh_obj.vertices, dtype=np.float32),
+            np.asarray(mesh_obj.faces, dtype=np.uint32),
+        )
+        self._mesh_projection.set_points(pts)
+        self._mesh_projection_n_points = len(pts)
+        self._mesh_projection_bound = False
+
+        proj_actor = _fury_actor.point(
+            pts,
+            colors=colors,
+            size=2.0,
+            enable_picking=False,
+        )
+        PointProjection.prepare_actor(proj_actor)
+
+        self._visualizations["mesh_projection"] = [proj_actor]
+        return self._visualizations["mesh_projection"]
+
+    def update_mesh_projection(self, threshold=None):
+        """Run the compute pass and write snapped positions into the actor buffer.
+
+        Safe to call any time after :meth:`visualize_mesh_projection` — the
+        GPU buffer is materialized eagerly and the CPU<->GPU sync state is
+        adjusted to keep the compute output authoritative.
+        """
+        if self._mesh_projection is None:
+            return
+        viz = self._visualizations["mesh_projection"]
+        if not viz:
+            return
+
+        positions = viz[0].geometry.positions
+        if not self._mesh_projection_bound:
+            self._mesh_projection.bind_output_to_actor(viz[0])
+            self._mesh_projection_bound = True
+
+        if threshold is None:
+            threshold = state_manager.mesh_projection_threshold
+        self._mesh_projection.dispatch(float(threshold))
+
+        # The GPU buffer now holds the snapped positions. Suppress any pending
+        # CPU->GPU upload pygfx may have queued from the original streamline
+        # data; otherwise the next render would overwrite our compute output.
+        if hasattr(positions, "_chunks_dirt_flag"):
+            positions._chunks_dirt_flag = 0
+            if positions._chunk_mask is not None:
+                positions._chunk_mask[:] = False
+
+    def set_mesh_projection_visible(self, visible):
+        viz = self._visualizations["mesh_projection"]
+        if not viz:
+            return
+        viz[0].visible = bool(visible)
+
+    def clear_mesh_projection(self):
+        """Forget the projection actor and binding (e.g., on mesh/tractogram swap)."""
+        self._visualizations["mesh_projection"] = None
+        self._mesh_projection_bound = False
+
+    def rebuild_mesh_projection(self):
+        """Build a replacement projection actor from the current state.
+
+        Returns ``(old_viz, new_viz)`` — both lists or ``None`` — so the caller
+        (which owns the scene) can remove the old actor and add the new one.
+        Internal projection bookkeeping is reset; the caller must call
+        :meth:`update_mesh_projection` after adding ``new_viz`` to the scene.
+        """
+        old_viz = self._visualizations["mesh_projection"]
+        self._visualizations["mesh_projection"] = None
+        self._mesh_projection_bound = False
+        new_viz = self.visualize_mesh_projection()
+        return old_viz, new_viz
 
     @property
     def mesh_visualizations(self):
