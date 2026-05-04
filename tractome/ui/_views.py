@@ -171,6 +171,12 @@ class InteractionScreen(QWidget):
         self._right_section.tracks_widget.track_remove_requested.connect(
             self._on_track_remove_requested
         )
+        self._right_section.btn_toggle_info.clicked.connect(
+            self._center_section.toggle_display_info
+        )
+        self._right_section.btn_toggle_shortcuts.clicked.connect(
+            self._center_section.toggle_keystroke_card
+        )
 
         main_layout.addWidget(self._left_section, 1)
         main_layout.addWidget(self._center_section, 3)

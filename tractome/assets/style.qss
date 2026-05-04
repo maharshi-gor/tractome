@@ -799,3 +799,27 @@ QToolButton#trackRemoveButton {
     font-size: 13pt;
     font-weight: bold;
 }
+
+#rightSectionTitle {
+    color: #ffffff;
+    font-size: 16pt;
+    font-weight: bold;
+    padding: 6px 4px 2px 4px;
+}
+
+QPushButton#trackToggleButton {
+    background-color: #1e1e1e;
+    color: #ffffff;
+    border: 1px solid #3a3a3a;
+    border-radius: 8px;
+    font-size: 11pt;
+    padding: 8px 12px;
+}
+
+QPushButton#trackToggleButton:hover {
+    border-color: #8a8a8a;
+}
+
+QPushButton#trackToggleButton:pressed {
+    background-color: #2a2a2a;
+}

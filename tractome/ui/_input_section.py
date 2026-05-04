@@ -1530,8 +1530,30 @@ class RightSectionWidget(QFrame):
         self.main_layout.setContentsMargins(8, 8, 8, 8)
         self.main_layout.setSpacing(10)
 
+        self.track_views_title = QLabel("Track Views")
+        self.track_views_title.setObjectName("rightSectionTitle")
+        self.main_layout.addWidget(self.track_views_title)
+
         self.tracks_widget = TracksWidget(parent=self)
         self.main_layout.addWidget(self.tracks_widget)
+
+        toggle_row = QHBoxLayout()
+        toggle_row.setContentsMargins(0, 0, 0, 0)
+        toggle_row.setSpacing(8)
+        self.btn_toggle_info = QPushButton("Toggle info")
+        self.btn_toggle_info.setObjectName("trackToggleButton")
+        self.btn_toggle_info.setCursor(Qt.PointingHandCursor)
+        toggle_row.addWidget(self.btn_toggle_info)
+
+        self.btn_toggle_shortcuts = QPushButton("Toggle shortcuts")
+        self.btn_toggle_shortcuts.setObjectName("trackToggleButton")
+        self.btn_toggle_shortcuts.setCursor(Qt.PointingHandCursor)
+        toggle_row.addWidget(self.btn_toggle_shortcuts)
+        self.main_layout.addLayout(toggle_row)
+
+        self.add_ons_title = QLabel("Add ons")  # codespell:ignore 'ons'
+        self.add_ons_title.setObjectName("rightSectionTitle")
+        self.main_layout.addWidget(self.add_ons_title)
 
         self.image_input_widget = ImageInputWidget(parent=self)
         self.main_layout.addWidget(self.image_input_widget)

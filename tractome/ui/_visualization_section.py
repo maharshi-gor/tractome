@@ -199,6 +199,16 @@ class CenterSectionWidget(QFrame):
             self._keystroke_card.setVisible(True)
         self._refresh_overlays()
 
+    def toggle_display_info(self):
+        """Flip visibility of the Display Info overlay card."""
+        self._display_info_widget.setVisible(not self._display_info_widget.isVisible())
+        self._refresh_overlays()
+
+    def toggle_keystroke_card(self):
+        """Flip visibility of the Key Strokes overlay card."""
+        self._keystroke_card.setVisible(not self._keystroke_card.isVisible())
+        self._refresh_overlays()
+
     def remove_visualization(self, visualizations, *, visualization_type="unknown"):
         """Remove visualizations from the center section.
 
