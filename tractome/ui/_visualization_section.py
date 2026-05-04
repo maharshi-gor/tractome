@@ -111,6 +111,13 @@ class CenterSectionWidget(QFrame):
         self._build_display_info_overlay(layout)
         self._build_keystroke_card(layout)
 
+        self._axes_gizmo_margin = 60
+        self.show_manager.show_axes_gizmo(size=30, thickness=2)
+        # The wgpu canvas reports its own resize before Qt's
+        # CenterSectionWidget.resizeEvent fires, so listen on both.
+        self.show_manager.resize_callback(self._on_canvas_resize)
+        QTimer.singleShot(0, self._reposition_axes_gizmo)
+
     def _build_display_info_overlay(self, parent_layout):
         """Create display info overlay inside the visualization area."""
         self._display_info_widget = QFrame(self)
@@ -198,6 +205,63 @@ class CenterSectionWidget(QFrame):
             self._update_display_info()
             self._keystroke_card.setVisible(True)
         self._refresh_overlays()
+
+    def resizeEvent(self, event):
+        """Re-pin the axes gizmo to the bottom-right after a canvas resize."""
+        super().resizeEvent(event)
+        self._reposition_axes_gizmo()
+
+    def showEvent(self, event):
+        """Reposition once the widget is on-screen.
+
+        QStackedWidget hides this view at app start, so the only resize
+        Qt fires before show is for the (default) 800x800 canvas. Without
+        this call the gizmo would otherwise sit at the unscaled default
+        position until the first user resize.
+        """
+        super().showEvent(event)
+        QTimer.singleShot(0, self._reposition_axes_gizmo)
+
+    def _on_canvas_resize(self, size):
+        """ShowManager resize callback that mirrors ``_reposition_axes_gizmo``.
+
+        ``size`` is the new ``(width, height)`` of the wgpu canvas, in
+        logical pixels — when there's a single screen filling the
+        window it matches ``screens[0].size`` so we use it directly
+        without having to wait for ``update_viewports`` to run.
+        """
+        anchor = getattr(self.show_manager, "_axes_helper_anchor", None)
+        if anchor is None:
+            return
+        try:
+            width, _height = size
+        except (TypeError, ValueError):
+            return
+        margin = self._axes_gizmo_margin
+        anchor.local.position = [max(int(width) - margin, margin), margin, 0.5]
+        self.show_manager.render()
+
+    def _reposition_axes_gizmo(self):
+        """Move the axes-gizmo anchor to the bottom-right of the viewport.
+
+        Fury anchors the helper at ``(60, 60)`` from the bottom-left by
+        default; we keep the same vertical inset and mirror the horizontal
+        one so the gizmo sticks to the bottom-right corner regardless of
+        canvas size.
+        """
+        anchor = getattr(self.show_manager, "_axes_helper_anchor", None)
+        if anchor is None:
+            return
+        screens = getattr(self.show_manager, "screens", None)
+        if not screens:
+            return
+        try:
+            width, _height = screens[0].size
+        except Exception:
+            return
+        margin = self._axes_gizmo_margin
+        anchor.local.position = [max(int(width) - margin, margin), margin, 0.5]
+        self.show_manager.render()
 
     def toggle_display_info(self):
         """Flip visibility of the Display Info overlay card."""
