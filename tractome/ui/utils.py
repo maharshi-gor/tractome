@@ -60,3 +60,17 @@ def open_file_dialog(
     else:
         logging.info("No file selected.")
     return file_path
+
+
+def save_file_dialog(
+    *,
+    parent=None,
+    title="Save file",
+    file_filter="All Files (*.*)",
+    default_name="",
+):
+    """Open a save dialog and return the chosen file path."""
+    file_path, _ = QFileDialog.getSaveFileName(parent, title, default_name, file_filter)
+    if file_path:
+        logging.info(f"Save target: {file_path}")
+    return file_path

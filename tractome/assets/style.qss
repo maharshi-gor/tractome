@@ -743,3 +743,59 @@ QPushButton[class="roiToolButton"]:disabled {
 #roiExistingList::item:hover:!selected {
     background-color: #2a2a2a;
 }
+
+/* Tracks Widget (right panel) */
+#tracksWidget {
+    background-color: #1e1e1e;
+    border: 2px solid #2e2e2e;
+    border-radius: 12px;
+    outline: none;
+}
+
+#tracksHeaderBar {
+    background-color: #e87722;
+    border-radius: 2px;
+}
+
+#tracksTitle {
+    color: #ffffff;
+    font-size: 13pt;
+    font-weight: bold;
+    letter-spacing: 1px;
+}
+
+#trackRow {
+    background-color: transparent;
+}
+
+#trackElbow {
+    color: #747474;
+    font-size: 14pt;
+    min-width: 12px;
+}
+
+#trackCheckbox {
+    color: #ffffff;
+    font-size: 11pt;
+    spacing: 6px;
+}
+
+QToolButton#trackSaveButton,
+QToolButton#trackRemoveButton {
+    padding: 0;
+    margin: 0;
+    color: #ffffff;
+    background-color: #575757;
+    border: 1px solid #747474;
+    border-radius: 6px;
+}
+
+QToolButton#trackSaveButton:hover,
+QToolButton#trackRemoveButton:hover {
+    border-color: #8a8a8a;
+}
+
+QToolButton#trackRemoveButton {
+    font-size: 13pt;
+    font-weight: bold;
+}

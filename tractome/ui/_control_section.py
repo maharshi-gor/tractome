@@ -740,15 +740,23 @@ class LeftSectionWidget(QFrame):
 
         self.main_layout.addStretch()
 
+        self._track_isolation_active = False
+
+    def set_track_isolation_active(self, active):
+        """Hide cluster/ROI panels while a captured track is isolated."""
+        self._track_isolation_active = bool(active)
+        self.update_controls_for_visualization()
+
     def update_controls_for_visualization(self):
         """Show/hide controls depending on visualization type and view mode."""
         is_3d = state_manager.view_mode == "3D"
         is_create_mode = state_manager.roi_create_mode is not None
         has_tractogram_input = input_manager.has_tractogram
+        isolating = self._track_isolation_active
         self.fibers_box.setVisible(is_3d and has_tractogram_input)
-        self.clusters_box.setVisible(is_3d and has_tractogram_input)
-        self.roi_input_widget.setVisible(is_3d and not is_create_mode)
-        self.roi_create_widget.setVisible(is_create_mode)
+        self.clusters_box.setVisible(is_3d and has_tractogram_input and not isolating)
+        self.roi_input_widget.setVisible(is_3d and not is_create_mode and not isolating)
+        self.roi_create_widget.setVisible(is_create_mode and not isolating)
 
         if has_tractogram_input:
             self._sync_clusters_from_latest_state()

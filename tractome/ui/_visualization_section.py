@@ -667,3 +667,8 @@ class CenterSectionWidget(QFrame):
             refresh = getattr(screen, "_refresh_mesh_projection_if_active", None)
             if callable(refresh):
                 refresh()
+            # Selection / visibility mutators (a, n, i, s, h) only flip flags
+            # on cluster actors; without mesh projection enabled, the
+            # refresh above is a no-op and the scene would otherwise stay
+            # frozen until the next mouse interaction.
+            self.show_manager.render()

@@ -9,14 +9,16 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from dipy.io.stateful_tractogram import Space, StatefulTractogram
 import numpy as np
 
+from tractome.io import save_tractogram
 from tractome.mem import input_manager, state_manager, visualization_manager
 from tractome.ui._control_section import LeftSectionWidget
 from tractome.ui._input_section import RightSectionWidget
 from tractome.ui._paths import IMAGES_PATH
 from tractome.ui._visualization_section import CenterSectionWidget
-from tractome.ui.utils import open_file_dialog
+from tractome.ui.utils import open_file_dialog, save_file_dialog
 from tractome.viz import rasterize_cylinder, rasterize_sphere
 
 
@@ -156,6 +158,18 @@ class InteractionScreen(QWidget):
         self._roi_shape_by_id = {}
         self._left_section.view_mode_widget.view_mode_changed.connect(
             self._on_view_mode_changed
+        )
+        self._left_section.fibers_box.btn_capture.clicked.connect(
+            self._on_capture_clicked
+        )
+        self._right_section.tracks_widget.track_visibility_changed.connect(
+            self._on_track_visibility_changed
+        )
+        self._right_section.tracks_widget.track_save_requested.connect(
+            self._on_track_save_requested
+        )
+        self._right_section.tracks_widget.track_remove_requested.connect(
+            self._on_track_remove_requested
         )
 
         main_layout.addWidget(self._left_section, 1)
@@ -590,6 +604,87 @@ class InteractionScreen(QWidget):
         # name so the list still refreshes (cheap — just rebuilds N
         # rows in a QListWidget).
         self._refresh_roi_create_existing_list()
+
+    def _on_capture_clicked(self):
+        """Snapshot the streamlines from currently-selected clusters.
+
+        A new track row is appended to the Tracks panel on the right.
+        Does nothing when no clustering exists yet or when the user has
+        not selected any cluster.
+        """
+        if not state_manager.has_states():
+            return
+        latest_state = state_manager.get_latest_state()
+        if latest_state.tractogram_states is None:
+            return
+        streamline_ids = []
+        for cluster_data in latest_state.tractogram_states.values():
+            if not cluster_data.get("selected"):
+                continue
+            streamline_ids.extend(int(s) for s in cluster_data["streamline_ids"])
+        if not streamline_ids:
+            return
+        self._right_section.tracks_widget.add_track(streamline_ids=streamline_ids)
+
+    def _on_track_visibility_changed(self):
+        """Apply or release the captured-track isolation in the scene."""
+        self._apply_track_isolation()
+        self._left_section.set_track_isolation_active(
+            self._right_section.tracks_widget.has_active_track()
+        )
+        self._center_section.show_manager.render()
+
+    def _apply_track_isolation(self):
+        """Hide cluster actors that don't intersect the active track set.
+
+        When no track is checked all cluster visibility is restored from
+        each cluster's stored ``visible`` flag.
+        """
+        if not state_manager.has_states():
+            return
+        latest_state = state_manager.get_latest_state()
+        if latest_state.tractogram_states is None:
+            return
+
+        active_ids = self._right_section.tracks_widget.active_streamline_ids()
+        for cluster_data in latest_state.tractogram_states.values():
+            actor = cluster_data.get("rep_actor") or cluster_data.get("lines_actor")
+            if actor is None:
+                continue
+            if not active_ids:
+                actor.visible = bool(cluster_data.get("visible", True))
+                continue
+            cluster_ids = {int(s) for s in cluster_data["streamline_ids"]}
+            actor.visible = bool(cluster_ids & active_ids) and bool(
+                cluster_data.get("visible", True)
+            )
+
+    def _on_track_save_requested(self, index):
+        """Save the streamlines belonging to track ``index`` as TRX."""
+        track = self._right_section.tracks_widget.get_track(index)
+        if track is None or not track["streamline_ids"]:
+            return
+        if not input_manager.has_tractogram:
+            return
+        file_path = save_file_dialog(
+            parent=self,
+            title="Save track as TRX",
+            file_filter="TRX Files (*.trx);; All Files (*.*)",
+            default_name=f"{track['name']}.trx",
+        )
+        if not file_path:
+            return
+        if not file_path.lower().endswith(".trx"):
+            file_path = f"{file_path}.trx"
+        sft, _, _, _ = input_manager.get_current_tractogram()
+        selected = [sft.streamlines[i] for i in track["streamline_ids"]]
+        new_sft = StatefulTractogram(selected, sft, Space.RASMM)
+        save_tractogram(new_sft, file_path)
+
+    def _on_track_remove_requested(self, index):
+        """Remove a captured track and refresh the scene if it was active."""
+        self._right_section.tracks_widget.remove_track(index)
+        self._on_track_visibility_changed()
 
     def _on_view_mode_changed(self, mode):
         """Switch the active scene and matching control panels for ``mode``.

@@ -1344,6 +1344,180 @@ class RoiInputWidget(QFrame):
         self.opacity_slider.blockSignals(False)
 
 
+class TracksWidget(QFrame):
+    """Right-side panel listing captured tracks.
+
+    The widget shows a single ``Track Default`` header at all times.
+    Each capture appends a row with a checkbox (used to isolate that
+    track in the scene), a save button (exports the streamlines as
+    TRX) and a remove button.
+    """
+
+    track_visibility_changed = Signal()
+    track_save_requested = Signal(int)
+    track_remove_requested = Signal(int)
+
+    def __init__(self, *, parent=None):
+        super().__init__(parent)
+        self.setObjectName("tracksWidget")
+
+        self.main_layout = QVBoxLayout(self)
+        self.main_layout.setContentsMargins(12, 12, 12, 12)
+        self.main_layout.setSpacing(8)
+
+        header_row = QHBoxLayout()
+        header_row.setContentsMargins(0, 0, 0, 0)
+        header_row.setSpacing(8)
+
+        self._header_bar = QFrame()
+        self._header_bar.setObjectName("tracksHeaderBar")
+        self._header_bar.setFixedSize(4, 18)
+        header_row.addWidget(self._header_bar)
+
+        self.title = QLabel("Track Default")
+        self.title.setObjectName("tracksTitle")
+        header_row.addWidget(self.title)
+        header_row.addStretch()
+        self.main_layout.addLayout(header_row)
+
+        self._rows_container = QWidget()
+        self._rows_layout = QVBoxLayout(self._rows_container)
+        self._rows_layout.setContentsMargins(0, 0, 0, 0)
+        self._rows_layout.setSpacing(4)
+        self.main_layout.addWidget(self._rows_container)
+
+        self._tracks = []
+        self._row_widgets = []
+
+    def add_track(self, *, streamline_ids, name=None):
+        """Append a captured track and build its row.
+
+        Parameters
+        ----------
+        streamline_ids : list[int]
+            Indices into the current SFT streamlines to associate with
+            this track.
+        name : str, optional
+            Display name. Auto-numbered when omitted.
+        """
+        index = len(self._tracks)
+        if name is None:
+            name = f"Track {index + 1}"
+        self._tracks.append(
+            {
+                "name": name,
+                "streamline_ids": [int(i) for i in streamline_ids],
+                "visible": False,
+            }
+        )
+        self._build_row(index)
+
+    def _build_row(self, index):
+        track = self._tracks[index]
+        row_widget = QWidget()
+        row_widget.setObjectName("trackRow")
+        row_layout = QHBoxLayout(row_widget)
+        row_layout.setContentsMargins(8, 0, 0, 0)
+        row_layout.setSpacing(8)
+
+        elbow = QLabel("└")
+        elbow.setObjectName("trackElbow")
+        row_layout.addWidget(elbow)
+
+        checkbox = QCheckBox(track["name"])
+        checkbox.setObjectName("trackCheckbox")
+        checkbox.setChecked(False)
+        checkbox.toggled.connect(
+            lambda checked, w=row_widget: self._on_visibility_toggled(w, checked)
+        )
+        row_layout.addWidget(checkbox)
+        row_layout.addStretch()
+
+        save_button = QToolButton()
+        save_button.setObjectName("trackSaveButton")
+        save_button.setIcon(QIcon(str(ICONS_PATH / "save.svg")))
+        save_button.setIconSize(QSize(14, 14))
+        save_button.setFixedSize(28, 28)
+        save_button.setCursor(Qt.PointingHandCursor)
+        save_button.setToolTip("Save track as TRX")
+        save_button.clicked.connect(
+            lambda _checked=False, w=row_widget: self._emit_save(w)
+        )
+        row_layout.addWidget(save_button)
+
+        remove_button = QToolButton()
+        remove_button.setObjectName("trackRemoveButton")
+        remove_button.setText("✕")
+        remove_button.setFixedSize(28, 28)
+        remove_button.setCursor(Qt.PointingHandCursor)
+        remove_button.setToolTip("Remove track")
+        remove_button.clicked.connect(
+            lambda _checked=False, w=row_widget: self._emit_remove(w)
+        )
+        row_layout.addWidget(remove_button)
+
+        self._rows_layout.addWidget(row_widget)
+        self._row_widgets.append(
+            {
+                "widget": row_widget,
+                "checkbox": checkbox,
+            }
+        )
+
+    def _row_index(self, row_widget):
+        for idx, row in enumerate(self._row_widgets):
+            if row["widget"] is row_widget:
+                return idx
+        return -1
+
+    def _on_visibility_toggled(self, row_widget, checked):
+        index = self._row_index(row_widget)
+        if index < 0:
+            return
+        self._tracks[index]["visible"] = bool(checked)
+        self.track_visibility_changed.emit()
+
+    def _emit_save(self, row_widget):
+        index = self._row_index(row_widget)
+        if index >= 0:
+            self.track_save_requested.emit(index)
+
+    def _emit_remove(self, row_widget):
+        index = self._row_index(row_widget)
+        if index >= 0:
+            self.track_remove_requested.emit(index)
+
+    def remove_track(self, index):
+        """Remove the track at ``index`` and its row widget."""
+        if index < 0 or index >= len(self._tracks):
+            return
+        was_visible = self._tracks[index]["visible"]
+        row = self._row_widgets.pop(index)
+        self._rows_layout.removeWidget(row["widget"])
+        row["widget"].deleteLater()
+        del self._tracks[index]
+        if was_visible:
+            self.track_visibility_changed.emit()
+
+    def get_track(self, index):
+        """Return the track dict for ``index`` or None when out of range."""
+        if 0 <= index < len(self._tracks):
+            return self._tracks[index]
+        return None
+
+    def active_streamline_ids(self):
+        """Return the union of streamline IDs across all checked tracks."""
+        ids = set()
+        for track in self._tracks:
+            if track["visible"]:
+                ids.update(track["streamline_ids"])
+        return ids
+
+    def has_active_track(self):
+        """Whether at least one track checkbox is currently enabled."""
+        return any(track["visible"] for track in self._tracks)
+
+
 class RightSectionWidget(QFrame):
     """Right section container for add-ons and track views."""
 
@@ -1355,7 +1529,9 @@ class RightSectionWidget(QFrame):
         self.main_layout = QVBoxLayout(self)
         self.main_layout.setContentsMargins(8, 8, 8, 8)
         self.main_layout.setSpacing(10)
-        self.main_layout.addStretch()
+
+        self.tracks_widget = TracksWidget(parent=self)
+        self.main_layout.addWidget(self.tracks_widget)
 
         self.image_input_widget = ImageInputWidget(parent=self)
         self.main_layout.addWidget(self.image_input_widget)
@@ -1365,3 +1541,5 @@ class RightSectionWidget(QFrame):
 
         self.parcel_input_widget = ParcelInputWidget(parent=self)
         self.main_layout.addWidget(self.parcel_input_widget)
+
+        self.main_layout.addStretch()
