@@ -1389,7 +1389,7 @@ class TracksWidget(QFrame):
         self._tracks = []
         self._row_widgets = []
 
-    def add_track(self, *, streamline_ids, name=None):
+    def add_track(self, *, streamline_ids, color, name=None):
         """Append a captured track and build its row.
 
         Parameters
@@ -1397,6 +1397,9 @@ class TracksWidget(QFrame):
         streamline_ids : list[int]
             Indices into the current SFT streamlines to associate with
             this track.
+        color : tuple[float, float, float]
+            RGB (0-1) color used to paint every streamline in this track
+            uniformly when the track is isolated.
         name : str, optional
             Display name. Auto-numbered when omitted.
         """
@@ -1407,7 +1410,9 @@ class TracksWidget(QFrame):
             {
                 "name": name,
                 "streamline_ids": [int(i) for i in streamline_ids],
+                "color": tuple(float(c) for c in color),
                 "visible": False,
+                "actor": None,
             }
         )
         self._build_row(index)
@@ -1504,6 +1509,10 @@ class TracksWidget(QFrame):
         if 0 <= index < len(self._tracks):
             return self._tracks[index]
         return None
+
+    def iter_tracks(self):
+        """Iterate captured-track dicts in display order."""
+        return iter(self._tracks)
 
     def active_streamline_ids(self):
         """Return the union of streamline IDs across all checked tracks."""

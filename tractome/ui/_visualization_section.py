@@ -70,6 +70,9 @@ class CenterSectionWidget(QFrame):
         self._roi_drag_handlers_registered = False
         self._roi_create_dragging = False
 
+        self._keystrokes_enabled = True
+        self._keystroke_card_pre_isolation_visible = None
+
         def _register_clicks(event):
             """Handle selection clicks.
 
@@ -272,6 +275,32 @@ class CenterSectionWidget(QFrame):
         """Flip visibility of the Key Strokes overlay card."""
         self._keystroke_card.setVisible(not self._keystroke_card.isVisible())
         self._refresh_overlays()
+
+    def set_track_isolation_active(self, active):
+        """Disable keystrokes and hide the keystroke card while a tract view is active.
+
+        On entering isolation, the current keystroke-card visibility is
+        remembered and restored when isolation ends. Keystroke handling
+        is also gated so cluster-mutation keys (a/n/i/d/e/c/s/h/x) do
+        nothing while a captured view is shown.
+        """
+        if active:
+            if self._keystrokes_enabled:
+                self._keystroke_card_pre_isolation_visible = (
+                    self._keystroke_card.isVisible()
+                )
+                self._keystroke_card.setVisible(False)
+                self._refresh_overlays()
+            self._keystrokes_enabled = False
+        else:
+            if not self._keystrokes_enabled:
+                if self._keystroke_card_pre_isolation_visible is not None:
+                    self._keystroke_card.setVisible(
+                        self._keystroke_card_pre_isolation_visible
+                    )
+                    self._refresh_overlays()
+                self._keystroke_card_pre_isolation_visible = None
+            self._keystrokes_enabled = True
 
     def remove_visualization(self, visualizations, *, visualization_type="unknown"):
         """Remove visualizations from the center section.
@@ -684,6 +713,8 @@ class CenterSectionWidget(QFrame):
         event : Event
             The key stroke event.
         """
+        if not self._keystrokes_enabled:
+            return
         cluster_state_changed = False
         if event.key == "e":
             self.remove_visualization(

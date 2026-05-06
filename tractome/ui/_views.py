@@ -4,6 +4,7 @@ from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QMessageBox,
     QPushButton,
     QSizePolicy,
     QVBoxLayout,
@@ -12,6 +13,7 @@ from PySide6.QtWidgets import (
 from dipy.io.stateful_tractogram import Space, StatefulTractogram
 import numpy as np
 
+from fury import distinguishable_colormap
 from tractome.io import save_tractogram
 from tractome.mem import input_manager, state_manager, visualization_manager
 from tractome.ui._control_section import LeftSectionWidget
@@ -19,7 +21,7 @@ from tractome.ui._input_section import RightSectionWidget
 from tractome.ui._paths import IMAGES_PATH
 from tractome.ui._visualization_section import CenterSectionWidget
 from tractome.ui.utils import open_file_dialog, save_file_dialog
-from tractome.viz import rasterize_cylinder, rasterize_sphere
+from tractome.viz import create_streamlines, rasterize_cylinder, rasterize_sphere
 
 
 class StartScreen(QWidget):
@@ -100,6 +102,10 @@ class InteractionScreen(QWidget):
         self._left_section = LeftSectionWidget(parent=self)
         self._center_section = CenterSectionWidget()
         self._right_section = RightSectionWidget()
+
+        # Per-track color generator: each captured view gets the next
+        # distinguishable color so neighbouring tracks don't collide.
+        self._track_color_gen = distinguishable_colormap()
         self._right_section.image_input_widget.t1_changed.connect(self._on_t1_changed)
         self._right_section.image_input_widget.t1_visibility_changed.connect(
             self._on_t1_visibility_changed
@@ -612,11 +618,13 @@ class InteractionScreen(QWidget):
         self._refresh_roi_create_existing_list()
 
     def _on_capture_clicked(self):
-        """Snapshot the streamlines from currently-selected clusters.
+        """Snapshot the streamlines from currently-expanded clusters.
 
-        A new track row is appended to the Tracks panel on the right.
-        Does nothing when no clustering exists yet or when the user has
-        not selected any cluster.
+        Captures the streamlines from every expanded cluster — i.e. the
+        individual streamlines currently rendered as lines in the scene.
+        A new track row is appended to the Tracks panel on the right
+        with a uniform per-view color. If no cluster is expanded,
+        prompts the user to expand one first.
         """
         if not state_manager.has_states():
             return
@@ -625,26 +633,44 @@ class InteractionScreen(QWidget):
             return
         streamline_ids = []
         for cluster_data in latest_state.tractogram_states.values():
-            if not cluster_data.get("selected"):
+            if not cluster_data.get("expanded"):
                 continue
             streamline_ids.extend(int(s) for s in cluster_data["streamline_ids"])
         if not streamline_ids:
+            self._show_capture_empty_warning()
             return
-        self._right_section.tracks_widget.add_track(streamline_ids=streamline_ids)
+        color = tuple(float(c) for c in next(self._track_color_gen))
+        self._right_section.tracks_widget.add_track(
+            streamline_ids=streamline_ids, color=color
+        )
+
+    def _show_capture_empty_warning(self):
+        """Show the styled warning when no expanded cluster exists."""
+        box = QMessageBox(self)
+        box.setObjectName("captureWarningBox")
+        box.setIcon(QMessageBox.Information)
+        box.setWindowTitle("Nothing to capture")
+        box.setText("Expand a cluster before capturing a view.")
+        box.setStandardButtons(QMessageBox.Ok)
+        box.exec()
 
     def _on_track_visibility_changed(self):
         """Apply or release the captured-track isolation in the scene."""
         self._apply_track_isolation()
-        self._left_section.set_track_isolation_active(
-            self._right_section.tracks_widget.has_active_track()
-        )
+        is_active = self._right_section.tracks_widget.has_active_track()
+        self._left_section.set_track_isolation_active(is_active)
+        self._center_section.set_track_isolation_active(is_active)
+        self._right_section.btn_toggle_shortcuts.setDisabled(is_active)
         self._center_section.show_manager.render()
 
     def _apply_track_isolation(self):
-        """Hide cluster actors that don't intersect the active track set.
+        """Swap between cluster view and uniform-color tract view actors.
 
-        When no track is checked all cluster visibility is restored from
-        each cluster's stored ``visible`` flag.
+        While any track is active, all cluster actors are hidden and
+        each visible track gets its own lines actor painted uniformly
+        in the track's color. When no track is active the track actors
+        are removed and per-cluster visibility is restored from each
+        cluster's stored ``visible`` flag.
         """
         if not state_manager.has_states():
             return
@@ -652,18 +678,39 @@ class InteractionScreen(QWidget):
         if latest_state.tractogram_states is None:
             return
 
-        active_ids = self._right_section.tracks_widget.active_streamline_ids()
+        has_active = self._right_section.tracks_widget.has_active_track()
+
         for cluster_data in latest_state.tractogram_states.values():
             actor = cluster_data.get("rep_actor") or cluster_data.get("lines_actor")
             if actor is None:
                 continue
-            if not active_ids:
-                actor.visible = bool(cluster_data.get("visible", True))
-                continue
-            cluster_ids = {int(s) for s in cluster_data["streamline_ids"]}
-            actor.visible = bool(cluster_ids & active_ids) and bool(
-                cluster_data.get("visible", True)
-            )
+            actor.visible = (not has_active) and bool(cluster_data.get("visible", True))
+
+        scene = self._center_section._3D_scene
+        for track in self._right_section.tracks_widget.iter_tracks():
+            actor = track.get("actor")
+            if track["visible"]:
+                if actor is None:
+                    actor = self._build_track_actor(track)
+                    if actor is None:
+                        continue
+                    track["actor"] = actor
+                    scene.add(actor)
+                else:
+                    actor.visible = True
+            elif actor is not None:
+                actor.visible = False
+
+    def _build_track_actor(self, track):
+        """Build a uniform-color streamlines actor for ``track``."""
+        if not input_manager.has_tractogram:
+            return None
+        sft, _, _, _ = input_manager.get_current_tractogram()
+        streamlines = [sft.streamlines[i] for i in track["streamline_ids"]]
+        if not streamlines:
+            return None
+        color = np.asarray(track["color"], dtype=np.float32)
+        return create_streamlines(streamlines, color)
 
     def _on_track_save_requested(self, index):
         """Save the streamlines belonging to track ``index`` as TRX."""
@@ -689,6 +736,12 @@ class InteractionScreen(QWidget):
 
     def _on_track_remove_requested(self, index):
         """Remove a captured track and refresh the scene if it was active."""
+        track = self._right_section.tracks_widget.get_track(index)
+        if track is not None:
+            actor = track.get("actor")
+            if actor is not None:
+                self._center_section._3D_scene.remove(actor)
+                track["actor"] = None
         self._right_section.tracks_widget.remove_track(index)
         self._on_track_visibility_changed()
 

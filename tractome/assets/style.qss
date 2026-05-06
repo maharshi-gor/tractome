@@ -823,3 +823,27 @@ QPushButton#trackToggleButton:hover {
 QPushButton#trackToggleButton:pressed {
     background-color: #2a2a2a;
 }
+
+QMessageBox#captureWarningBox {
+    background-color: #000000;
+}
+
+QMessageBox#captureWarningBox QLabel {
+    color: #ffffff;
+}
+
+QMessageBox#captureWarningBox QPushButton {
+    background-color: #000000;
+    color: #ffffff;
+    border: 1px solid #ffffff;
+    padding: 4px 16px;
+    min-width: 64px;
+}
+
+QMessageBox#captureWarningBox QPushButton:hover {
+    background-color: #222222;
+}
+
+QMessageBox#captureWarningBox QPushButton:pressed {
+    background-color: #333333;
+}

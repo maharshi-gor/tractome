@@ -753,7 +753,7 @@ class LeftSectionWidget(QFrame):
         is_create_mode = state_manager.roi_create_mode is not None
         has_tractogram_input = input_manager.has_tractogram
         isolating = self._track_isolation_active
-        self.fibers_box.setVisible(is_3d and has_tractogram_input)
+        self.fibers_box.setVisible(is_3d and has_tractogram_input and not isolating)
         self.clusters_box.setVisible(is_3d and has_tractogram_input and not isolating)
         self.roi_input_widget.setVisible(is_3d and not is_create_mode and not isolating)
         self.roi_create_widget.setVisible(is_create_mode and not isolating)
