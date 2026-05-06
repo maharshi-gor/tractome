@@ -69,6 +69,7 @@ class CenterSectionWidget(QFrame):
         self._roi_create_preview = None
         self._roi_drag_handlers_registered = False
         self._roi_create_dragging = False
+        self._saved_2d_controls = None
 
         self._keystrokes_enabled = True
         self._keystroke_card_pre_isolation_visible = None
@@ -446,14 +447,18 @@ class CenterSectionWidget(QFrame):
     def enter_roi_create_mode(self, shape):
         """Enter the interactive ROI drawing mode for the given shape.
 
-        Disables the 2D pan/zoom controller and registers drag handlers
-        so the next pointer drag draws an ROI on the active slice plane.
+        Unbinds left-drag pan on the 2D controller (so the drag draws an
+        ROI) while leaving wheel/right-drag zoom active, and registers
+        drag handlers for drawing on the active slice plane.
         """
         state_manager.roi_create_mode = shape
         self._roi_create_initial_pos = None
         self._roi_create_dragging = False
         self._cleanup_roi_preview()
-        self._2D_controller.enabled = False
+        if self._saved_2d_controls is None:
+            self._saved_2d_controls = dict(self._2D_controller.controls)
+            self._2D_controller.controls.pop("mouse1", None)
+            self._2D_controller.controls.pop("mouse2", None)
         if not self._roi_drag_handlers_registered:
             self.show_manager.renderer.add_event_handler(
                 self._on_roi_create_drag, "pointer_drag"
@@ -477,8 +482,10 @@ class CenterSectionWidget(QFrame):
                 self._on_roi_create_release, "pointer_up"
             )
             self._roi_drag_handlers_registered = False
-        if state_manager.view_mode == "2D":
-            self._2D_controller.enabled = True
+        if self._saved_2d_controls is not None:
+            self._2D_controller.controls.clear()
+            self._2D_controller.controls.update(self._saved_2d_controls)
+            self._saved_2d_controls = None
         self.show_manager.render()
 
     def set_roi_create_shape(self, shape):

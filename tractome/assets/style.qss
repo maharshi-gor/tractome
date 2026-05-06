@@ -824,15 +824,15 @@ QPushButton#trackToggleButton:pressed {
     background-color: #2a2a2a;
 }
 
-QMessageBox#captureWarningBox {
+QMessageBox {
     background-color: #000000;
 }
 
-QMessageBox#captureWarningBox QLabel {
+QMessageBox QLabel {
     color: #ffffff;
 }
 
-QMessageBox#captureWarningBox QPushButton {
+QMessageBox QPushButton {
     background-color: #000000;
     color: #ffffff;
     border: 1px solid #ffffff;
@@ -840,10 +840,10 @@ QMessageBox#captureWarningBox QPushButton {
     min-width: 64px;
 }
 
-QMessageBox#captureWarningBox QPushButton:hover {
+QMessageBox QPushButton:hover {
     background-color: #222222;
 }
 
-QMessageBox#captureWarningBox QPushButton:pressed {
+QMessageBox QPushButton:pressed {
     background-color: #333333;
 }

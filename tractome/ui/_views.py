@@ -383,6 +383,7 @@ class InteractionScreen(QWidget):
     def _on_roi_create_requested(self):
         """Switch to 2D mode and start the interactive ROI draw."""
         if not input_manager.has_t1:
+            self._show_reference_image_required_warning()
             return
         if state_manager.view_mode != "2D":
             self._left_section.view_mode_widget.set_mode("2D")
@@ -636,6 +637,16 @@ class InteractionScreen(QWidget):
         box.setStandardButtons(QMessageBox.Ok)
         box.exec()
 
+    def _show_reference_image_required_warning(self):
+        """Warn that 2D / ROI editing needs a reference image loaded."""
+        box = QMessageBox(self)
+        box.setObjectName("referenceImageRequiredBox")
+        box.setIcon(QMessageBox.Information)
+        box.setWindowTitle("Reference image required")
+        box.setText("To enable 2D mode or ROI editing a reference image is required.")
+        box.setStandardButtons(QMessageBox.Ok)
+        box.exec()
+
     def _on_track_visibility_changed(self):
         """Apply or release the captured-track isolation in the scene."""
         self._apply_track_isolation()
@@ -740,6 +751,11 @@ class InteractionScreen(QWidget):
             Either ``"3D"`` or ``"2D"``.
         """
         if state_manager.view_mode == mode:
+            return
+
+        if mode == "2D" and not input_manager.has_t1:
+            self._show_reference_image_required_warning()
+            self._left_section.view_mode_widget.set_mode(state_manager.view_mode)
             return
 
         # Leaving create mode for 3D commits the session: any drawn

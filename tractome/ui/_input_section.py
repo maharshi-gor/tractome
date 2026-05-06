@@ -1054,16 +1054,7 @@ class RoiInputWidget(QFrame):
         self.refresh_rois()
 
     def _on_add_clicked(self):
-        """Enter the interactive ROI create mode.
-
-        Drawing requires a T1 image to anchor the slice plane. When no
-        T1 is loaded the button only flashes a tooltip instead of
-        emitting the request signal.
-        """
-        if not input_manager.has_t1:
-            self.add_button.setToolTip("Load a T1 image first to draw an ROI")
-            return
-        self.add_button.setToolTip("Add a new ROI")
+        """Request ROI create mode; the parent view validates T1 presence."""
         self.roi_create_requested.emit()
 
     def _on_opacity_changed(self, value):
