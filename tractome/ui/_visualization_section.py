@@ -629,15 +629,90 @@ class CenterSectionWidget(QFrame):
         preview.local.position = tuple(center)
         preview.local.scale = (float(radius), float(radius), 1.0)
 
-    def _on_roi_create_drag(self, event):
-        """Track the drag and update the live ROI preview disk.
+    def _ensure_preview_rect(self, axis):
+        """Create the rubber-band preview square for the rectangle tool.
 
-        Diameter mode: the click point is one end of the diameter and
-        the current pointer is the other. The disk's center is the
-        midpoint and its radius is half the world-space distance
-        between the two. The first event of a gesture only records
-        the start point; the disk is created on the second event so
-        it's already at a visible size from frame one.
+        Same lifecycle and styling as the disk preview: a unit square
+        in the local XY plane, rotated to align with the active slice
+        plane, and scaled non-uniformly each drag tick to match the
+        in-plane bounds of the user's drag.
+        """
+        if self._roi_create_preview is not None:
+            return self._roi_create_preview
+        _, plane_normal = self._slice_plane_world(axis)
+        self._roi_create_plane_normal = np.asarray(plane_normal, dtype=np.float32)
+        preview = actor.square(
+            np.zeros((1, 3), dtype=np.float32),
+            colors=(0.3, 0.7, 1.0),
+            scales=(1.0, 1.0, 1.0),
+            opacity=0.5,
+            material="basic",
+        )
+        try:
+            q = la.quat_from_vecs(
+                np.array([0.0, 0.0, 1.0], dtype=np.float64),
+                np.asarray(plane_normal, dtype=np.float64),
+            )
+            preview.local.rotation = q
+        except Exception:
+            pass
+        preview.material.alpha_mode = "weighted_blend"
+        preview.material.depth_write = False
+        self._roi_create_preview = preview
+        self._2D_scene.add(preview)
+        return preview
+
+    def _update_preview_rect(self, start, end, axis):
+        """Position and scale the preview rectangle for the current drag.
+
+        ``actor.square`` produces a unit quad in the local XY plane.
+        The rotation set at creation maps that local plane onto the
+        slice plane; for the three axis-aligned slice normals produced
+        by ``_slice_plane_world`` the mapping is:
+
+        * axis 0 (X-slice): local X ↔ world Z, local Y ↔ world Y
+        * axis 1 (Y-slice): local X ↔ world X, local Y ↔ world Z
+        * axis 2 (Z-slice): local X ↔ world X, local Y ↔ world Y
+
+        Sign of the mapping doesn't matter for the scale; we use the
+        absolute extents along the relevant world axes.
+        """
+        preview = self._roi_create_preview
+        if preview is None:
+            return
+        a = np.asarray(start, dtype=np.float64)
+        b = np.asarray(end, dtype=np.float64)
+        delta = np.abs(b - a)
+        if axis == 0:
+            scale_x, scale_y = float(delta[2]), float(delta[1])
+        elif axis == 1:
+            scale_x, scale_y = float(delta[0]), float(delta[2])
+        else:
+            scale_x, scale_y = float(delta[0]), float(delta[1])
+        if scale_x <= 0 or scale_y <= 0:
+            return
+        normal = getattr(
+            self, "_roi_create_plane_normal", np.array([0, 0, 1], np.float32)
+        )
+        center = ((a + b) / 2.0).astype(np.float32) + normal * 1.0
+        preview.local.position = tuple(center)
+        preview.local.scale = (scale_x, scale_y, 1.0)
+
+    def _on_roi_create_drag(self, event):
+        """Track the drag and update the live ROI preview.
+
+        Sphere tool: the click point is one end of the diameter and
+        the current pointer is the other; the disk preview is the
+        midpoint-centred circle of half that distance.
+
+        Rectangle tool: the click point and current pointer are
+        opposite corners of the rectangle's diagonal; the preview is
+        the axis-aligned rubber-band quad bounding them on the slice
+        plane.
+
+        The first event of a gesture only records the start point;
+        the preview is created on the second event so it's already at
+        a visible size from frame one.
 
         FURY synthesizes ``pointer_drag`` from ``pointer_down`` +
         ``pointer_move`` (see ShowManager._register_drag in window.py).
@@ -654,12 +729,16 @@ class CenterSectionWidget(QFrame):
 
         start, fixed_axis = self._roi_create_initial_pos
         end = world_pos
-        center = (np.asarray(start) + np.asarray(end)) / 2.0
-        radius = float(np.linalg.norm(end - start)) / 2.0
-        if radius <= 0:
-            return
-        self._ensure_preview_disk(fixed_axis)
-        self._update_preview_disk(center, radius)
+        if state_manager.roi_create_mode == "rectangle":
+            self._ensure_preview_rect(fixed_axis)
+            self._update_preview_rect(start, end, fixed_axis)
+        else:
+            center = (np.asarray(start) + np.asarray(end)) / 2.0
+            radius = float(np.linalg.norm(end - start)) / 2.0
+            if radius <= 0:
+                return
+            self._ensure_preview_disk(fixed_axis)
+            self._update_preview_disk(center, radius)
         # During the drag we are inside a Qt mouse-event handler, so a
         # plain ``request_draw`` only schedules the paint for the next
         # vsync — but Qt is busy delivering more mouse events, so the
@@ -694,14 +773,14 @@ class CenterSectionWidget(QFrame):
             self.show_manager.render()
             return
         end = world_pos
-        center = (np.asarray(start) + np.asarray(end)) / 2.0
-        radius = float(np.linalg.norm(end - start)) / 2.0
-        if radius <= 0:
+        start_arr = np.asarray(start, dtype=np.float64)
+        end_arr = np.asarray(end, dtype=np.float64)
+        if float(np.linalg.norm(end_arr - start_arr)) <= 0:
             self.show_manager.render()
             return
         self.roi_drawn.emit(
-            np.asarray(center, dtype=np.float64),
-            float(radius),
+            start_arr,
+            end_arr,
             state_manager.roi_create_mode,
         )
 
@@ -772,8 +851,5 @@ class CenterSectionWidget(QFrame):
             refresh = getattr(screen, "_refresh_mesh_projection_if_active", None)
             if callable(refresh):
                 refresh()
-            # Selection / visibility mutators (a, n, i, s, h) only flip flags
-            # on cluster actors; without mesh projection enabled, the
-            # refresh above is a no-op and the scene would otherwise stay
-            # frozen until the next mouse interaction.
+
             self.show_manager.render()

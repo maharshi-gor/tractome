@@ -21,7 +21,7 @@ from tractome.ui._input_section import RightSectionWidget
 from tractome.ui._paths import IMAGES_PATH
 from tractome.ui._visualization_section import CenterSectionWidget
 from tractome.ui.utils import open_file_dialog, save_file_dialog
-from tractome.viz import create_streamlines, rasterize_cylinder, rasterize_sphere
+from tractome.viz import create_streamlines, rasterize_box, rasterize_sphere
 
 
 class StartScreen(QWidget):
@@ -158,9 +158,6 @@ class InteractionScreen(QWidget):
         )
         self._center_section.roi_drawn.connect(self._on_roi_drawn)
         self._draft_roi_id = None
-        # ROI synthetic id -> last shape rasterized for it ("sphere"
-        # or "cylinder"). Decoupled from the synthetic id so an ROI
-        # can change shape without being renamed.
         self._roi_shape_by_id = {}
         self._left_section.view_mode_widget.view_mode_changed.connect(
             self._on_view_mode_changed
@@ -419,7 +416,7 @@ class InteractionScreen(QWidget):
         """Update the active shape used by the next drag.
 
         The draft pointer is intentionally **kept**: switching from
-        sphere to cylinder (or back) on the same draft replaces that
+        sphere to rectangle (or back) on the same draft replaces that
         ROI's volume with the new primitive on the next drag, rather
         than spawning a third entry. To start a fresh ROI the user
         clears the existing-ROIs selection.
@@ -493,15 +490,16 @@ class InteractionScreen(QWidget):
         self._left_section.roi_create_widget.reset_properties()
         self._left_section.update_controls_for_visualization()
         self._left_section.roi_input_widget.refresh_rois()
-        # Only run the (potentially expensive) filter + recluster if
-        # we were actually in create mode AND the user committed at
-        # least one drag in this session. A no-op session shouldn't
-        # trigger reclustering.
         if was_create_mode and had_draft and input_manager.has_roi:
             self._on_rois_changed()
 
-    def _on_roi_drawn(self, world_center, world_radius, shape):
+    def _on_roi_drawn(self, world_start, world_end, shape):
         """Rasterize the drawn shape into a binary volume.
+
+        ``world_start`` and ``world_end`` are the two endpoints of the
+        user's drag in world coordinates. For ``sphere`` they're treated
+        as opposite ends of a diameter; for ``rectangle`` they're the
+        opposite corners of the rectangle's diagonal.
 
         Behaviour: while the user keeps drawing without clicking
         ``New`` or ``Save`` the same draft ROI is overwritten in
@@ -520,32 +518,29 @@ class InteractionScreen(QWidget):
                 slice_axis = index
                 break
 
-        if shape == "cylinder" and slice_axis is not None:
-            # The cylinder runs perpendicular to the active slice and
-            # should span the full T1 along that axis (the user is
-            # carving a tube through the whole brain, not just one
-            # slab). World extent along the axis = nb_voxels * voxel
-            # spacing. We pass 2x that so the cylinder definitely
-            # covers the volume regardless of where the click landed
-            # — rasterize_cylinder already clips to the volume
-            # bounds, so the 2x is free.
+        world_start = np.asarray(world_start, dtype=np.float64)
+        world_end = np.asarray(world_end, dtype=np.float64)
+
+        if shape == "rectangle" and slice_axis is not None:
             spacing = float(np.linalg.norm(affine[:3, slice_axis]))
-            full_extent = float(shape_volume[slice_axis]) * spacing
-            world_height = max(2.0 * full_extent, 1.0)
-            volume = rasterize_cylinder(
+            volume = rasterize_box(
                 shape_volume,
                 affine,
-                world_center,
-                float(world_radius),
+                world_start,
+                world_end,
                 slice_axis,
-                world_height,
+                spacing,
             )
         else:
+            world_center = (world_start + world_end) / 2.0
+            world_radius = float(np.linalg.norm(world_end - world_start)) / 2.0
+            if world_radius <= 0:
+                return
             volume = rasterize_sphere(
                 shape_volume,
                 affine,
                 world_center,
-                float(world_radius),
+                world_radius,
             )
 
         if not np.any(volume):
@@ -557,16 +552,9 @@ class InteractionScreen(QWidget):
             )
         else:
             input_manager.update_roi_volume(self._draft_roi_id, volume, affine)
-        # Remember the shape that was rasterized so the Properties
-        # pane (and a later edit-target switch) can show the right
-        # Type without having to parse the synthetic id.
+
         self._roi_shape_by_id[self._draft_roi_id] = shape
 
-        # Refresh ROI actors only — filter + recluster is deferred
-        # until the user leaves create mode (handled by
-        # _commit_roi_create_session). visualize_rois() rebuilds all
-        # contours; for the draft case that's just one cheap
-        # marching-cubes run, not the full clustering pipeline.
         roi_viz = list(visualization_manager.roi_visualizations)
         if roi_viz:
             self._center_section.remove_visualization(roi_viz, visualization_type="roi")
@@ -581,15 +569,9 @@ class InteractionScreen(QWidget):
         if roi_2d:
             self._center_section.add_2d_visualization(roi_2d)
 
-        # pygfx commits scene-graph changes one frame late (same
-        # workaround as set_view_mode), so schedule a deferred render
-        # to make the new slicer visible without a 3D/2D toggle.
         self._center_section.show_manager.render()
         QTimer.singleShot(0, self._center_section.show_manager.render)
 
-        # Push the active ROI's metadata into the Properties pane.
-        # Voxel position uses the volume centroid so it stays
-        # meaningful as the user re-drags the same draft.
         try:
             ix, iy, iz = np.where(volume > 0)
             voxel_pos = (ix.mean(), iy.mean(), iz.mean())

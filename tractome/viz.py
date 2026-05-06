@@ -372,12 +372,8 @@ def rasterize_sphere(shape, affine, world_center, world_radius):
     return volume
 
 
-def rasterize_cylinder(shape, affine, world_center, world_radius, axis, world_height):
-    """Rasterize an axis-aligned cylinder into a binary voxel volume.
-
-    The cylinder runs along the given world axis. In the perpendicular
-    plane it has the requested radius; along the axis it spans
-    ``world_height`` centred on ``world_center``.
+def rasterize_box(shape, affine, world_corner_a, world_corner_b, axis, world_depth):
+    """Rasterize an axis-aligned rectangular slab into a binary voxel volume.
 
     Parameters
     ----------
@@ -385,36 +381,42 @@ def rasterize_cylinder(shape, affine, world_center, world_radius, axis, world_he
         Output volume shape ``(nx, ny, nz)``.
     affine : ndarray
         4x4 voxel-to-world affine.
-    world_center : array-like of 3 floats
-        Cylinder center in world coordinates.
-    world_radius : float
-        Radius in the plane perpendicular to ``axis`` (world units).
+    world_corner_a, world_corner_b : array-like of 3 floats
+        Two opposite corners of the rectangle's diagonal in world coordinates.
+        Both points lie on the slice plane; the slab spans their bounding
+        box in the two axes perpendicular to ``axis``.
     axis : int
-        World axis the cylinder runs along (0, 1, or 2).
-    world_height : float
-        Total length of the cylinder along ``axis``.
+        World axis perpendicular to the slab (0, 1, or 2).
+    world_depth : float
+        Total thickness along ``axis``, centred on the midpoint of the
+        two corners along that axis. Pass one voxel of spacing for a
+        single-voxel-deep slab.
 
     Returns
     -------
     ndarray
-        ``uint8`` binary volume with voxels inside the cylinder set to 1.
+        ``uint8`` binary volume with voxels inside the slab set to 1.
     """
     inv_affine = np.linalg.inv(affine)
-    half_h = float(world_height) / 2.0
-    r = float(world_radius)
-    extents = np.array([r, r, r], dtype=np.float64)
-    extents[axis] = half_h
-    cx, cy, cz = world_center
+    a = np.asarray(world_corner_a, dtype=np.float64)
+    b = np.asarray(world_corner_b, dtype=np.float64)
+    half_d = float(world_depth) / 2.0
+    lo = np.minimum(a, b).copy()
+    hi = np.maximum(a, b).copy()
+    center_axis = (a[axis] + b[axis]) / 2.0
+    lo[axis] = center_axis - half_d
+    hi[axis] = center_axis + half_d
+
     corners = np.array(
         [
             [
-                cx + sx * extents[0],
-                cy + sy * extents[1],
-                cz + sz * extents[2],
+                lo[0] if sx == 0 else hi[0],
+                lo[1] if sy == 0 else hi[1],
+                lo[2] if sz == 0 else hi[2],
             ]
-            for sx in (-1, 1)
-            for sy in (-1, 1)
-            for sz in (-1, 1)
+            for sx in (0, 1)
+            for sy in (0, 1)
+            for sz in (0, 1)
         ],
         dtype=np.float64,
     )
@@ -432,11 +434,14 @@ def rasterize_cylinder(shape, affine, world_center, world_radius, axis, world_he
         axis=1,
     )
     world_pts = (affine @ pts.T).T[:, :3]
-    delta = world_pts - np.asarray(world_center, dtype=np.float64)
-    along = delta[:, axis]
-    in_plane = np.delete(delta, axis, axis=1)
-    in_plane_dist = np.linalg.norm(in_plane, axis=1)
-    mask = (in_plane_dist <= r) & (np.abs(along) <= half_h)
+    mask = (
+        (world_pts[:, 0] >= lo[0])
+        & (world_pts[:, 0] <= hi[0])
+        & (world_pts[:, 1] >= lo[1])
+        & (world_pts[:, 1] <= hi[1])
+        & (world_pts[:, 2] >= lo[2])
+        & (world_pts[:, 2] <= hi[2])
+    )
     volume[gx.ravel(), gy.ravel(), gz.ravel()] = mask.astype(np.uint8)
     return volume
 

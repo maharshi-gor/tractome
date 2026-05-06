@@ -442,7 +442,7 @@ class RoiCreateWidget(QFrame):
     def _build_toolbar(self):
         """Toolbar of 4 icon buttons.
 
-        ``square_roi`` and ``sphere_roi`` are wired to the cylinder
+        ``square_roi`` and ``sphere_roi`` are wired to the rectangle
         and sphere rasterizers respectively. ``edit_roi`` (brush) and
         ``erase_roi`` are placeholders for future tools and stay
         disabled at the UI level.
@@ -453,15 +453,8 @@ class RoiCreateWidget(QFrame):
         self._tool_group = QButtonGroup(self)
         self._tool_group.setExclusive(True)
 
-        # (key, icon-file, shape-name, tooltip, enabled). The shape
-        # name is what we emit on shape_changed and what flows down
-        # to the rasterizer; the icon file is read from ICONS_PATH.
-        # Brush and eraser are placeholders for future tools and stay
-        # disabled at the UI level. To edit an existing ROI today,
-        # select its row in the list below — the next drag rewrites
-        # that ROI rather than creating a new one.
         tools = [
-            ("rectangle", "square_roi.svg", "cylinder", "Cylinder", True),
+            ("rectangle", "square_roi.svg", "rectangle", "Rectangle", True),
             ("circle", "sphere_roi.svg", "sphere", "Sphere", True),
             ("brush", "edit_roi.svg", None, "Brush (coming soon)", False),
             ("eraser", "erase_roi.svg", None, "Eraser (coming soon)", False),
@@ -663,7 +656,7 @@ class RoiCreateWidget(QFrame):
         """Return the active drawing shape name.
 
         Reads from whichever toolbar button is currently checked.
-        Square = cylinder, Circle = sphere; brush and eraser have
+        Square = rectangle, Circle = sphere; brush and eraser have
         no rasterizer yet and fall through to the default sphere.
         """
         for key, btn in self._tool_buttons.items():

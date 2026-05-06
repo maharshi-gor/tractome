@@ -164,11 +164,6 @@ class InputManager:
         str
             The synthetic identifier registered in the input manager.
         """
-        # Use a single counter independent of the shape label so the
-        # synthetic id stays stable even if the user switches shape
-        # mid-edit (a "Sphere 1" that becomes a cylinder must not be
-        # renamed; the actual shape is tracked separately by the
-        # screen).
         total = self._created_roi_counters.get("__total__", 0) + 1
         self._created_roi_counters["__total__"] = total
         roi_id = f"ROI {total}"
