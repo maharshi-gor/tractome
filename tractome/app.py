@@ -1,5 +1,6 @@
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication, QMainWindow, QMessageBox, QStackedWidget
+import click
 
 from tractome.io import get_file_extension
 from tractome.mem import input_manager, state_manager, visualization_manager
@@ -210,6 +211,54 @@ class Tractome(QMainWindow):
         """Show the main window and start the FURY/Qt loop."""
         self.show()
         self._interaction_screen._center_section.show_manager.start()
+
+
+@click.command(name="tractome")
+@click.option(
+    "--tractogram", type=click.Path(exists=True), help="Path to the tractogram file."
+)
+@click.option("--mesh", type=click.Path(exists=True), help="Path to the mesh file.")
+@click.option(
+    "--mesh_texture",
+    type=click.Path(exists=True),
+    help="Path to the mesh texture file.",
+)
+@click.option(
+    "--t1", type=click.Path(exists=True), help="Path to the T1-weighted image file."
+)
+@click.option(
+    "--roi",
+    type=click.Path(exists=True),
+    multiple=True,
+    help="Path to an ROI file. Use multiple times for multiple ROIs.",
+)
+@click.option(
+    "--parcel",
+    type=click.Path(exists=True),
+    help=("Path to a parcel CSV file."),
+)
+def tractome(
+    tractogram=None, mesh=None, mesh_texture=None, t1=None, roi=(), parcel=None
+):
+    """Run the Tractome pipeline.
+
+    Parameters
+    ----------
+    tractogram : str, optional
+        Path to the tractogram file
+    mesh : str, optional
+        Path to the mesh file
+    mesh_texture : str, optional
+        Path to the mesh texture file
+    t1 : str, optional
+        Path to the T1-weighted image file
+    roi : tuple[str], optional
+        One or more paths to ROI files
+    parcel : str, optional
+        Path to a parcel CSV file
+    """
+    tractome = Tractome(tractogram, t1, mesh, mesh_texture, roi, parcel)
+    tractome.start()
 
 
 def main():
