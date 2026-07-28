@@ -51,6 +51,69 @@ def validate_path(path):
         raise FileNotFoundError(f"The file {path} does not exist or is not a file.")
 
 
+EMBEDDING_LABELS = {"dismatrix": "dissimilarity"}
+
+
+def get_embedding_label(embedding_name):
+    """Return the user-facing label for a stored embedding key.
+
+    Parameters
+    ----------
+    embedding_name : str
+        The ``data_per_streamline`` key as stored in the tractogram.
+
+    Returns
+    -------
+    str
+        The label to display for the embedding (falls back to the key
+        itself when no mapping is defined).
+    """
+    return EMBEDDING_LABELS.get(embedding_name, embedding_name)
+
+
+def get_embedding_keys(sft):
+    """List the per-streamline embeddings stored in a tractogram.
+
+    An embedding is any ``data_per_streamline`` entry whose per-streamline
+    value is a vector (width >= 2). The entry's key doubles as the human
+    readable embedding name/type (e.g. ``"dissimilarity"``, ``"finta"``).
+    No naming convention is assumed. Entries whose row count does not match
+    the number of streamlines are treated as corrupted and skipped.
+
+    Parameters
+    ----------
+    sft : StatefulTractogram
+        The tractogram to inspect.
+
+    Returns
+    -------
+    list[str]
+        Names of the available embeddings, in insertion order.
+    """
+    data_per_streamline = getattr(sft, "data_per_streamline", None)
+    if not data_per_streamline:
+        return []
+
+    n_streamlines = len(sft.streamlines)
+    keys = []
+    for key in data_per_streamline.keys():
+        try:
+            values = np.asarray(data_per_streamline[key])
+        except (ValueError, TypeError):
+            logging.warning(f"Skipping unreadable data_per_streamline entry '{key}'.")
+            continue
+        if values.ndim != 2 or values.shape[1] < 2:
+            continue
+        if values.shape[0] != n_streamlines:
+            logging.warning(
+                f"Skipping corrupted embedding '{key}': "
+                f"{values.shape[0]} rows for {n_streamlines} streamlines."
+            )
+            continue
+        keys.append(key)
+    return keys
+
+
 def read_tractogram(file_path, reference=None):
     """Read a tractogram file.
 
@@ -83,8 +146,11 @@ def read_tractogram(file_path, reference=None):
     if not sft:
         raise ValueError(f"Failed to load tractogram from {validated_path}.")
 
-    if sft.data_per_streamline is not None and "dismatrix" in sft.data_per_streamline:
-        logging.info("Dissimilarity matrix already present in the tractogram data.")
+    embedding_keys = get_embedding_keys(sft)
+    if embedding_keys:
+        logging.info(f"Embeddings found in the tractogram data: {embedding_keys}.")
+    else:
+        logging.info("No embeddings found in the tractogram data.")
 
     return sft
 
@@ -208,7 +274,12 @@ def read_csv(file_path, *, delimiter=",", has_header=True, encoding="utf-8"):
 
 
 def save_tractogram_from_streamlines(
-    streamlines, reference, embeddings, *, file_path="saved.trx"
+    streamlines,
+    reference,
+    embeddings,
+    *,
+    embedding_name="dismatrix",
+    file_path="saved.trx",
 ):
     """Save a tractogram from streamlines to a file.
 
@@ -220,6 +291,9 @@ def save_tractogram_from_streamlines(
         The reference image for the tractogram.
     embeddings : ndarray
         The embeddings to attach to the tractogram.
+    embedding_name : str, optional
+        The name/type under which the embeddings are stored. The name
+        doubles as the label shown when selecting an embedding at load time.
     file_path : str, optional
         The path where the tractogram will be saved.
     """
@@ -228,7 +302,7 @@ def save_tractogram_from_streamlines(
         streamlines,
         reference,
         Space.RASMM,
-        data_per_streamline={"dismatrix": embeddings},
+        data_per_streamline={embedding_name: embeddings},
     )
     dipy_save_tractogram(sft, file_path, bbox_valid_check=False)
     logging.info("Tractogram saved successfully.")

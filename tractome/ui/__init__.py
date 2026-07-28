@@ -8,6 +8,7 @@ __all__ = [
     "LeftSectionWidget",
     "RightSectionWidget",
     "CenterSectionWidget",
+    "EmbeddingSelectionDialog",
     "StartScreen",
     "InteractionScreen",
     "ViewModeWidget",
@@ -20,6 +21,7 @@ from tractome.ui._control_section import (
     LeftSectionWidget,
     ViewModeWidget,
 )
+from tractome.ui._dialogs import EmbeddingSelectionDialog
 from tractome.ui._input_section import RightSectionWidget
 from tractome.ui._paths import ASSETS_PATH, ICONS_PATH, IMAGES_PATH
 from tractome.ui._views import InteractionScreen, StartScreen

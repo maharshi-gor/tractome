@@ -14,7 +14,7 @@ from dipy.io.stateful_tractogram import Space, StatefulTractogram
 import numpy as np
 
 from fury import distinguishable_colormap
-from tractome.io import save_tractogram
+from tractome.io import get_embedding_keys, save_tractogram
 from tractome.mem import input_manager, state_manager, visualization_manager
 from tractome.ui._control_section import LeftSectionWidget
 from tractome.ui._input_section import RightSectionWidget
@@ -971,9 +971,9 @@ class InteractionScreen(QWidget):
         streamline_ids = track["streamline_ids"]
         selected = [sft.streamlines[i] for i in streamline_ids]
         data_per_streamline = {}
-        if "dismatrix" in sft.data_per_streamline:
-            data_per_streamline["dismatrix"] = np.asarray(
-                sft.data_per_streamline["dismatrix"]
+        for embedding_name in get_embedding_keys(sft):
+            data_per_streamline[embedding_name] = np.asarray(
+                sft.data_per_streamline[embedding_name]
             )[streamline_ids]
         new_sft = StatefulTractogram(
             selected,

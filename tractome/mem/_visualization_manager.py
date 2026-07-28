@@ -506,6 +506,61 @@ class VisualizationManager:
         """Return the mesh visualization list."""
         return self._visualizations["mesh"]
 
+    def generate_dissimilarity_embedding(self, *, name="dismatrix"):
+        """Compute a dissimilarity embedding for the current tractogram.
+
+        The embedding is attached to the current tractogram under ``name``
+        so it can be selected and used for clustering. A modal progress
+        dialog is shown while the (potentially long) computation runs.
+
+        Parameters
+        ----------
+        name : str, optional
+            The ``data_per_streamline`` key under which the computed
+            embedding is stored.
+
+        Returns
+        -------
+        str or None
+            The name of the generated embedding, or None if no tractogram
+            is available.
+        """
+        if not input_manager.has_tractogram:
+            return None
+
+        sft, _, _, _ = input_manager.get_current_tractogram()
+        progress = QProgressDialog(
+            "Embeddings not found, creating embeddings...",
+            None,
+            0,
+            0,
+            QApplication.activeWindow(),
+        )
+        progress.setWindowTitle("Creating embeddings")
+        progress.setCancelButton(None)
+        progress.setMinimumDuration(0)
+        progress.setModal(True)
+        progress.show()
+        QApplication.processEvents()
+
+        n_jobs = max(1, (os.cpu_count() or 1) - 2)
+        try:
+            data_dissimilarity = compute_dissimilarity(
+                np.asarray(sft.streamlines, dtype=object),
+                distance=bundles_distances_mam,
+                prototype_policy="sff",
+                num_prototypes=40,
+                verbose=False,
+                size_limit=5000000,
+                n_jobs=n_jobs,
+            )
+            sft.data_per_streamline[name] = data_dissimilarity
+        finally:
+            progress.close()
+            progress.deleteLater()
+
+        return name
+
     def visualize_tractogram(self, *, nb_clusters=100):
         """Visualize the tractogram.
 
@@ -523,38 +578,10 @@ class VisualizationManager:
         if not input_manager.has_tractogram:
             return None
 
-        sft, _, _, _ = input_manager.get_current_tractogram()
-        is_embeddings_present = "dismatrix" in sft.data_per_streamline
-        if not is_embeddings_present:
-            progress = QProgressDialog(
-                "Embeddings not found, creating embeddings...",
-                None,
-                0,
-                0,
-                QApplication.activeWindow(),
-            )
-            progress.setWindowTitle("Creating embeddings")
-            progress.setCancelButton(None)
-            progress.setMinimumDuration(0)
-            progress.setModal(True)
-            progress.show()
-            QApplication.processEvents()
+        if input_manager.selected_embedding is None:
+            return None
 
-            n_jobs = max(1, (os.cpu_count() or 1) - 2)
-            try:
-                data_dissimilarity = compute_dissimilarity(
-                    np.asarray(sft.streamlines, dtype=object),
-                    distance=bundles_distances_mam,
-                    prototype_policy="sff",
-                    num_prototypes=40,
-                    verbose=False,
-                    size_limit=5000000,
-                    n_jobs=n_jobs,
-                )
-                sft.data_per_streamline["dismatrix"] = data_dissimilarity
-            finally:
-                progress.close()
-                progress.deleteLater()
+        sft, _, _, _ = input_manager.get_current_tractogram()
 
         if not state_manager.has_states():
             state_manager.add_state(
@@ -654,7 +681,7 @@ class VisualizationManager:
         nb_clusters = min(max(1, int(state.nb_clusters)), len(streamline_ids))
         state.nb_clusters = nb_clusters
         clusters = mkbm_clustering(
-            sft.data_per_streamline["dismatrix"],
+            sft.data_per_streamline[input_manager.selected_embedding],
             n_clusters=nb_clusters,
             streamline_ids=streamline_ids,
         )

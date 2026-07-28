@@ -1,6 +1,12 @@
 import numpy as np
 
-from tractome.io import read_csv, read_mesh, read_nifti, read_tractogram
+from tractome.io import (
+    get_embedding_keys,
+    read_csv,
+    read_mesh,
+    read_nifti,
+    read_tractogram,
+)
 
 
 def _as_filter_volume(volume):
@@ -92,6 +98,7 @@ class InputManager:
         }
         self._loaded_rois = {}
         self._created_roi_counters = {}
+        self._selected_embedding = None
 
     def reset(self):
         """Clear all input paths, selections, and cached loaded data."""
@@ -109,6 +116,42 @@ class InputManager:
         self._current_inputs["tractogram"] = (
             len(self._provided_inputs["tractogram"]) - 1
         )
+        self._selected_embedding = None
+
+    @property
+    def selected_embedding(self):
+        """Name of the embedding chosen for clustering the current tractogram.
+
+        Returns
+        -------
+        str or None
+            The selected embedding key, or None if none has been chosen.
+        """
+        return self._selected_embedding
+
+    def set_selected_embedding(self, embedding_name):
+        """Choose which embedding drives clustering of the current tractogram.
+
+        Parameters
+        ----------
+        embedding_name : str
+            A ``data_per_streamline`` key present on the current tractogram.
+        """
+        self._selected_embedding = embedding_name
+
+    def get_embedding_keys(self):
+        """List embeddings available on the current tractogram.
+
+        Returns
+        -------
+        list[str]
+            Names of the available embeddings, or an empty list if no
+            tractogram is loaded.
+        """
+        if self._current_inputs["tractogram"] == -1:
+            return []
+        sft, _, _, _ = self.get_current_tractogram()
+        return get_embedding_keys(sft)
 
     def add_t1(self, t1):
         """Add a T1 image path and make it the current T1 image.
