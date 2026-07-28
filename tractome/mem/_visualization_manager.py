@@ -7,13 +7,19 @@ import numpy as np
 from fury import actor as _fury_actor, distinguishable_colormap
 from fury.actor import set_group_visibility, show_slices
 from tractome.compute import (
+    SUBSAMPLE_THRESHOLD,
     compute_dissimilarity,
     filter_streamline_ids,
     mkbm_clustering,
     transform_roi_to_world_grid,
 )
 from tractome.gpu import PointProjection
-from tractome.mem import ClusterState, input_manager, state_manager
+from tractome.mem import (
+    ClusterState,
+    input_manager,
+    recovery_manager,
+    state_manager,
+)
 from tractome.viz import (
     create_image_slicer,
     create_mesh,
@@ -584,9 +590,33 @@ class VisualizationManager:
         sft, _, _, _ = input_manager.get_current_tractogram()
 
         if not state_manager.has_states():
-            state_manager.add_state(
-                ClusterState(nb_clusters, np.arange(len(sft.streamlines)), 1000)
+            dismatrix = sft.data_per_streamline["dismatrix"]
+            needs_subsample = (
+                len(sft.streamlines) > SUBSAMPLE_THRESHOLD
+                and "fine_labels" not in sft.data_per_streamline
             )
+            progress = None
+            if needs_subsample:
+                progress = QProgressDialog(
+                    "Large tractogram: building working-set subsample...",
+                    None,
+                    0,
+                    0,
+                    QApplication.activeWindow(),
+                )
+                progress.setWindowTitle("Subsampling tractogram")
+                progress.setCancelButton(None)
+                progress.setMinimumDuration(0)
+                progress.setModal(True)
+                progress.show()
+                QApplication.processEvents()
+            try:
+                sample_ids = recovery_manager.build(sft, dismatrix)
+            finally:
+                if progress is not None:
+                    progress.close()
+                    progress.deleteLater()
+            state_manager.add_state(ClusterState(nb_clusters, sample_ids, 1000))
         else:
             state_manager.get_latest_state().nb_clusters = nb_clusters
 
