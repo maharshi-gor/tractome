@@ -20,8 +20,8 @@ dev = ["ruff>=0.12.7", "pre-commit"]
 optional = ["tractome[parallel]", "tractome[dev]"]
 
 [project.scripts]
-tractome = "tractome.cli:tractome"
-tractome_compute_dis_matrix = "tractome.cli:compute_dissimilarity_matrix"
+tractome = "tractome.app:tractome"
+tractome_compute_dis_matrix = "tractome.compute:compute_dissimilarity_matrix"
 
 [tool.setuptools.package-data]
 tractome = [
