@@ -1,10 +1,21 @@
 from PySide6.QtGui import QIcon
-from PySide6.QtWidgets import QApplication, QMainWindow, QMessageBox, QStackedWidget
+from PySide6.QtWidgets import (
+    QApplication,
+    QDialog,
+    QMainWindow,
+    QMessageBox,
+    QStackedWidget,
+)
 import click
 
 from tractome.io import get_file_extension
 from tractome.mem import input_manager, state_manager, visualization_manager
-from tractome.ui import InteractionScreen, StartScreen, load_style_sheet
+from tractome.ui import (
+    EmbeddingSelectionDialog,
+    InteractionScreen,
+    StartScreen,
+    load_style_sheet,
+)
 from tractome.ui.utils import ASSETS_PATH
 
 app = QApplication.instance() or QApplication([])
@@ -132,6 +143,57 @@ class Tractome(QMainWindow):
         if input_manager.has_input:
             self._completed_start_screen(None)
 
+    def _resolve_embedding_selection(self):
+        """Ensure an embedding is chosen for the current tractogram.
+
+        Embeddings are recognized generically: any per-streamline vector on
+        the tractogram counts, regardless of its name/type. When several are
+        present the user picks one via a radio-button dialog; a single one is
+        selected automatically; when none are present the user is offered to
+        generate a dissimilarity embedding on the fly.
+
+        Returns
+        -------
+        bool
+            True if an embedding is selected and clustering can proceed,
+            False if the user declined to generate one when none existed.
+        """
+        if not input_manager.has_tractogram:
+            return False
+        if input_manager.selected_embedding is not None:
+            return True
+
+        embedding_keys = input_manager.get_embedding_keys()
+
+        if len(embedding_keys) == 1:
+            input_manager.set_selected_embedding(embedding_keys[0])
+            return True
+
+        if len(embedding_keys) >= 2:
+            dialog = EmbeddingSelectionDialog(embedding_keys, self)
+            if dialog.exec() == QDialog.Accepted and dialog.selected_embedding:
+                input_manager.set_selected_embedding(dialog.selected_embedding)
+            else:
+                input_manager.set_selected_embedding(embedding_keys[0])
+            return True
+
+        result = QMessageBox.question(
+            self,
+            "No embeddings found",
+            "This tractogram has no embeddings.\n"
+            "Generate a dissimilarity embedding now?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.Yes,
+        )
+        if result != QMessageBox.Yes:
+            return False
+
+        name = visualization_manager.generate_dissimilarity_embedding()
+        if name is None:
+            return False
+        input_manager.set_selected_embedding(name)
+        return True
+
     def _visualize_inputs(self):
         """Visualize the inputs in the interaction screen."""
         t1_visualization = visualization_manager.visualize_t1()
@@ -139,6 +201,8 @@ class Tractome(QMainWindow):
             self._interaction_screen.add_visualization(
                 t1_visualization, visualization_type="t1"
             )
+        if input_manager.has_tractogram:
+            self._resolve_embedding_selection()
         tractogram_visualization = visualization_manager.visualize_tractogram()
         if tractogram_visualization is not None:
             self._interaction_screen.add_visualization(
