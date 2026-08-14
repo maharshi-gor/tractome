@@ -3,6 +3,7 @@
 These exercise the pure sampling logic only (numpy + scikit-learn); no Qt,
 tractogram IO, or GPU is required.
 """
+
 import numpy as np
 import pytest
 
@@ -24,8 +25,7 @@ def _make_embedding(seed=123, n_strata=300, dim=40, spread=0.15):
     sizes = rng.integers(20, 400, size=n_strata)
     sizes[:5] = rng.integers(6, 15, size=5)  # thin bundles
     parts = [
-        centers[i] + rng.normal(size=(sizes[i], dim)) * spread
-        for i in range(n_strata)
+        centers[i] + rng.normal(size=(sizes[i], dim)) * spread for i in range(n_strata)
     ]
     X = np.concatenate(parts).astype(np.float32)
     return X[rng.permutation(len(X))]

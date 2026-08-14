@@ -590,10 +590,11 @@ class VisualizationManager:
         sft, _, _, _ = input_manager.get_current_tractogram()
 
         if not state_manager.has_states():
-            dismatrix = sft.data_per_streamline["dismatrix"]
-            needs_subsample = (
-                len(sft.streamlines) > SUBSAMPLE_THRESHOLD
-                and "fine_labels" not in sft.data_per_streamline
+            embedding_name = input_manager.selected_embedding
+            dismatrix = sft.data_per_streamline[embedding_name]
+            is_large = len(sft.streamlines) > SUBSAMPLE_THRESHOLD
+            needs_subsample = is_large and not recovery_manager.has_cached_labels(
+                sft, embedding_name
             )
             progress = None
             if needs_subsample:
@@ -611,7 +612,7 @@ class VisualizationManager:
                 progress.show()
                 QApplication.processEvents()
             try:
-                sample_ids = recovery_manager.build(sft, dismatrix)
+                sample_ids = recovery_manager.build(sft, dismatrix, embedding_name)
             finally:
                 if progress is not None:
                     progress.close()

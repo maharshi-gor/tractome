@@ -4,6 +4,29 @@ import numpy as np
 
 from tractome.compute import stratified_subsample
 
+FINE_LABELS_PREFIX = "fine_labels"
+
+
+def fine_labels_key(embedding_name):
+    """Return the ``data_per_streamline`` key caching strata for an embedding.
+
+    Fine-stratum labels are produced by a MiniBatchKMeans pass over one
+    specific embedding, so they are only meaningful alongside that embedding.
+    Qualifying the key by embedding name keeps labels built from one embedding
+    from being reused when another is selected.
+
+    Parameters
+    ----------
+    embedding_name : str
+        The ``data_per_streamline`` key of the embedding the labels describe.
+
+    Returns
+    -------
+    str
+        The cache key for that embedding's fine-stratum labels.
+    """
+    return f"{FINE_LABELS_PREFIX}__{embedding_name}"
+
 
 class RecoveryManager:
     """Manage the subsampled working set and the fiber-recovery index.
@@ -26,6 +49,8 @@ class RecoveryManager:
         handed out; intentionally monotonic within a session.
     active : bool
         ``True`` only when subsampling actually happened (``N > threshold``).
+    embedding_name : str or None
+        Name of the embedding the current strata were built from.
     """
 
     _instance = None
@@ -45,12 +70,102 @@ class RecoveryManager:
         self.seed = 0
         self.n = 0
         self.active = False
+        self.embedding_name = None
 
     def reset(self):
         """Clear all recovery state (called when the tractogram changes)."""
         self.__init__()
 
-    def build(self, sft, dismatrix):
+    def has_cached_labels(self, sft, embedding_name):
+        """Report whether usable cached strata exist for ``embedding_name``.
+
+        Used to decide up-front whether :meth:`build` will have to run the
+        (slow) MiniBatchKMeans pass, so callers can show progress only when
+        work is actually going to happen.
+
+        Parameters
+        ----------
+        sft : StatefulTractogram
+            The loaded tractogram.
+        embedding_name : str
+            The embedding whose cached strata are being looked for.
+
+        Returns
+        -------
+        bool
+            True when a valid cache is present and will be reused.
+        """
+        return self._read_cached_labels(sft, embedding_name) is not None
+
+    def _read_cached_labels(self, sft, embedding_name):
+        """Return validated cached strata for ``embedding_name``, else None.
+
+        The cache lives in ``data_per_streamline``, which is arbitrary
+        user-supplied data: an entry under the expected key may come from an
+        unrelated pipeline. Labels are therefore only trusted when they are
+        integral, non-negative, and bounded by the streamline count -- the
+        assumptions :meth:`_subsample_from_labels` relies on. Anything else
+        falls through to a fresh fine pass rather than silently steering it.
+
+        Parameters
+        ----------
+        sft : StatefulTractogram
+            The loaded tractogram.
+        embedding_name : str
+            The embedding whose cached strata are being read.
+
+        Returns
+        -------
+        ndarray or None
+            ``int32`` labels of shape ``(N,)``, or None when absent/unusable.
+        """
+        key = fine_labels_key(embedding_name)
+        cached = sft.data_per_streamline.get(key, None)
+        if cached is None:
+            return None
+
+        n = len(sft.streamlines)
+        if n == 0:
+            return None
+
+        try:
+            values = np.asarray(cached)
+        except (ValueError, TypeError):
+            logging.warning("Ignoring unreadable cached strata '%s'.", key)
+            return None
+
+        if values.size != n:
+            logging.warning(
+                "Ignoring cached strata '%s': %s values for %s streamlines.",
+                key,
+                values.size,
+                n,
+            )
+            return None
+
+        values = values.reshape(-1)
+        if not np.issubdtype(values.dtype, np.number):
+            logging.warning("Ignoring non-numeric cached strata '%s'.", key)
+            return None
+        if not np.all(np.isfinite(values)) or np.any(values != np.floor(values)):
+            logging.warning("Ignoring non-integral cached strata '%s'.", key)
+            return None
+
+        labels = values.astype(np.int32)
+        if labels.min() < 0 or labels.max() >= n:
+            logging.warning(
+                "Ignoring out-of-range cached strata '%s': ids span [%s, %s] "
+                "for %s streamlines.",
+                key,
+                int(labels.min()),
+                int(labels.max()),
+                n,
+            )
+            return None
+
+        return labels
+
+    def build(self, sft, dismatrix, embedding_name):
         """Compute the working-set subsample and the recovery index.
 
         Runs once per tractogram. When the tractogram is at or below the
@@ -61,10 +176,15 @@ class RecoveryManager:
         ----------
         sft : StatefulTractogram
             The loaded tractogram; the fine-stratum labels are cached on its
-            ``data_per_streamline["fine_labels"]`` so they can persist with the
-            tractogram and be reused without recomputation.
+            ``data_per_streamline`` under :func:`fine_labels_key` so they can
+            persist with the tractogram and be reused without recomputation.
         dismatrix : ndarray
-            The dissimilarity embedding of shape ``(N, num_prototypes)``.
+            The embedding of shape ``(N, num_prototypes)`` selected for
+            clustering. Strata are built in this space, so the working set
+            matches the space the clustering actually runs in.
+        embedding_name : str
+            Name of the embedding ``dismatrix`` was taken from. Qualifies the
+            label cache so strata are never reused across embeddings.
 
         Returns
         -------
@@ -74,9 +194,8 @@ class RecoveryManager:
         n = len(sft.streamlines)
 
         # Reuse cached labels (e.g. saved with the tractogram) when present.
-        cached = sft.data_per_streamline.get("fine_labels", None)
-        if cached is not None and len(cached) == n:
-            labels = np.asarray(cached, dtype=np.int32).reshape(-1)
+        labels = self._read_cached_labels(sft, embedding_name)
+        if labels is not None:
             result = self._subsample_from_labels(dismatrix, labels)
         else:
             result = stratified_subsample(dismatrix, seed=self.seed)
@@ -87,19 +206,22 @@ class RecoveryManager:
         self.k_s = result["k_s"]
         self.n = result["n"]
         self.active = self.labels is not None
+        self.embedding_name = embedding_name
 
         if self.active:
             self.available_mask = np.ones(n, dtype=bool)
             self.available_mask[sample_ids] = False
+            key = fine_labels_key(embedding_name)
             try:
-                sft.data_per_streamline["fine_labels"] = self.labels.reshape(-1, 1)
+                sft.data_per_streamline[key] = self.labels.reshape(-1, 1)
             except Exception as exc:  # pragma: no cover - defensive cache only
-                logging.warning("Could not cache fine_labels on tractogram: %s", exc)
+                logging.warning("Could not cache '%s' on tractogram: %s", key, exc)
         else:
             self.available_mask = None
 
         logging.info(
-            "Recovery index built: N=%s, active=%s, k_s=%s, working set=%s",
+            "Recovery index built on '%s': N=%s, active=%s, k_s=%s, working set=%s",
+            embedding_name,
             n,
             self.active,
             self.k_s,
@@ -116,9 +238,10 @@ class RecoveryManager:
         Parameters
         ----------
         dismatrix : ndarray
-            The dissimilarity embedding, used only to recover medoids.
+            The selected embedding, used only to recover medoids.
         labels : ndarray
-            Cached ``int32`` stratum id for every streamline.
+            Cached ``int32`` stratum id for every streamline, already
+            validated by :meth:`_read_cached_labels`.
 
         Returns
         -------
