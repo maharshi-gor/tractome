@@ -9,6 +9,7 @@ from dipy.utils.optpkg import optional_package
 import numpy as np
 from scipy.ndimage import affine_transform
 from sklearn.cluster import MiniBatchKMeans
+from sklearn.neighbors import NearestNeighbors
 
 from tractome.io import read_tractogram, save_tractogram
 
@@ -24,6 +25,17 @@ SUBSAMPLE_THRESHOLD = 150_000
 FINE_Q = 20  # target kept-per-stratum -> k_s = threshold // q (~7500)
 KEEP_FLOOR = 5
 SUBSAMPLE_SEED = 0
+
+# --- Fiber recovery ------------------------------------------------------
+# Recovery pulls un-shown streamlines back around a selected bundle. The fine
+# strata double as a coarse quantizer (an inverted-file index): only the strata
+# the bundle occupies, plus their RECOVERY_NPROBE nearest siblings, are searched
+# exactly, which keeps the candidate pool at a few thousand rows even on a
+# million-streamline tractogram. RECOVERY_QUERY_CAP bounds the bundle side of
+# that search so cost stays flat however large the selection grows.
+RECOVERY_NPROBE = 8
+RECOVERY_QUERY_CAP = 5000
+RECOVERY_CHUNK = 20_000
 
 
 def furthest_first_traversal(S, k, distance, permutation=True):
@@ -453,6 +465,180 @@ def stratified_subsample(
         "k_s": k_s,
         "n": n,
     }
+
+
+def nearest_reference(reference, queries, *, chunk=RECOVERY_CHUNK):
+    """Find, for every query row, its nearest row in ``reference``.
+
+    Brute force is deliberate: the dissimilarity embedding has ~40 dimensions,
+    where tree-based indices degenerate to a linear scan anyway while costing a
+    build. The brute-force path is BLAS-backed and needs no index at all, and
+    the callers here always search a pre-narrowed pool.
+
+    Parameters
+    ----------
+    reference : ndarray
+        Rows to search, of shape ``(R, d)``.
+    queries : ndarray
+        Rows to look up, of shape ``(Q, d)``.
+    chunk : int, optional
+        Number of query rows resolved per batch, bounding peak memory of the
+        ``(chunk, R)`` distance block.
+
+    Returns
+    -------
+    distances : ndarray
+        ``float32`` distance from each query row to its nearest reference row.
+    indices : ndarray
+        ``int32`` row index into ``reference`` of that nearest row.
+    """
+    reference = np.asarray(reference, dtype=np.float32)
+    queries = np.asarray(queries, dtype=np.float32)
+
+    distances = np.empty(len(queries), dtype=np.float32)
+    indices = np.empty(len(queries), dtype=np.int32)
+    if len(queries) == 0 or len(reference) == 0:
+        return distances, indices
+
+    nn = NearestNeighbors(n_neighbors=1, algorithm="brute").fit(reference)
+    for start in range(0, len(queries), max(1, int(chunk))):
+        stop = min(start + max(1, int(chunk)), len(queries))
+        batch_distances, batch_indices = nn.kneighbors(queries[start:stop])
+        distances[start:stop] = batch_distances[:, 0]
+        indices[start:stop] = batch_indices[:, 0]
+
+    return distances, indices
+
+
+def knn_indices(reference, queries, k):
+    """Return the ``k`` nearest reference rows for each query row.
+
+    Parameters
+    ----------
+    reference : ndarray
+        Rows to search, of shape ``(R, d)``.
+    queries : ndarray
+        Rows to look up, of shape ``(Q, d)``.
+    k : int
+        Neighbours per query, clamped to ``R``.
+
+    Returns
+    -------
+    ndarray
+        ``int32`` array of shape ``(Q, min(k, R))`` of reference row indices.
+    """
+    reference = np.asarray(reference, dtype=np.float32)
+    queries = np.asarray(queries, dtype=np.float32)
+    k = max(1, min(int(k), len(reference)))
+
+    if len(queries) == 0 or len(reference) == 0:
+        return np.empty((len(queries), 0), dtype=np.int32)
+
+    nn = NearestNeighbors(n_neighbors=k, algorithm="brute").fit(reference)
+    return nn.kneighbors(queries, return_distance=False).astype(np.int32)
+
+
+def rank_recovery_candidates(
+    dismatrix,
+    bundle_ids,
+    candidate_ids,
+    budget,
+    *,
+    seed=SUBSAMPLE_SEED,
+    query_cap=RECOVERY_QUERY_CAP,
+):
+    """Pick the ``budget`` candidates closest to a bundle in embedding space.
+
+    Each candidate is scored by its distance to the *nearest* member of the
+    bundle, so a fiber tight against any part of the bundle ranks highly even
+    when the bundle itself is long or curved. Scoring in this direction costs
+    one pass over the candidates rather than one per bundle member.
+
+    Parameters
+    ----------
+    dismatrix : ndarray
+        Dissimilarity embedding of the full tractogram, shape ``(N, d)``.
+    bundle_ids : array_like
+        Streamline ids forming the bundle to grow around.
+    candidate_ids : array_like
+        Streamline ids eligible to be recovered. Must not overlap
+        ``bundle_ids``; callers build this from the un-shown set.
+    budget : int
+        Maximum number of ids to return.
+    seed : int, optional
+        Seed used when the bundle is subsampled down to ``query_cap``.
+    query_cap : int, optional
+        Largest bundle sample used for scoring. Beyond this a seeded random
+        subset stands in for the bundle, which bounds cost without meaningfully
+        moving the ranking (neighbours of a dense bundle are neighbours of
+        almost any dense sample of it).
+
+    Returns
+    -------
+    ids : ndarray
+        ``int32`` recovered streamline ids, closest first.
+    distances : ndarray
+        ``float32`` distance of each returned id to the bundle, ascending.
+    """
+    dismatrix = np.asarray(dismatrix, dtype=np.float32)
+    bundle_ids = np.asarray(bundle_ids, dtype=np.int32).reshape(-1)
+    candidate_ids = np.asarray(candidate_ids, dtype=np.int32).reshape(-1)
+    budget = int(budget)
+
+    empty = (np.empty(0, dtype=np.int32), np.empty(0, dtype=np.float32))
+    if budget <= 0 or bundle_ids.size == 0 or candidate_ids.size == 0:
+        return empty
+
+    query_ids = bundle_ids
+    if query_cap and query_ids.size > query_cap:
+        rng = np.random.default_rng(seed)
+        query_ids = rng.choice(query_ids, int(query_cap), replace=False)
+
+    distances, _ = nearest_reference(dismatrix[query_ids], dismatrix[candidate_ids])
+
+    keep = min(budget, candidate_ids.size)
+    if keep < candidate_ids.size:
+        # argpartition finds the k smallest without ordering the rest.
+        selected = np.argpartition(distances, keep - 1)[:keep]
+    else:
+        selected = np.arange(candidate_ids.size)
+
+    selected = selected[np.argsort(distances[selected], kind="stable")]
+    return candidate_ids[selected], distances[selected]
+
+
+def assign_to_nearest_medoid(dismatrix, streamline_ids, medoid_ids):
+    """Attach each streamline to the cluster whose medoid it is closest to.
+
+    Mirrors the assignment step of the original Tractome: recovered fibers join
+    an existing cluster instead of forcing a re-clustering, so cluster colors
+    and identities survive the operation.
+
+    Parameters
+    ----------
+    dismatrix : ndarray
+        Dissimilarity embedding of the full tractogram, shape ``(N, d)``.
+    streamline_ids : array_like
+        Streamline ids to assign.
+    medoid_ids : array_like
+        Streamline ids of the candidate cluster medoids. In tractome a cluster
+        is keyed by its own medoid's streamline id, so these double as the
+        cluster ids returned.
+
+    Returns
+    -------
+    ndarray
+        ``int32`` cluster id chosen for each entry of ``streamline_ids``.
+    """
+    dismatrix = np.asarray(dismatrix, dtype=np.float32)
+    streamline_ids = np.asarray(streamline_ids, dtype=np.int32).reshape(-1)
+    medoid_ids = np.asarray(medoid_ids, dtype=np.int32).reshape(-1)
+
+    if streamline_ids.size == 0 or medoid_ids.size == 0:
+        return np.empty(0, dtype=np.int32)
+
+    _, nearest = nearest_reference(dismatrix[medoid_ids], dismatrix[streamline_ids])
+    return medoid_ids[nearest].astype(np.int32)
 
 
 def calculate_filter(rois, *, flip=None, reference_shape=None):
