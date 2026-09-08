@@ -823,7 +823,7 @@ class InteractionScreen(QWidget):
         )
 
     def _on_recovery_requested(self, budget):
-        """Recover the nearest un-shown fibers around the selected clusters.
+        """Recover the nearest un-shown fibers around the expanded clusters.
 
         Parameters
         ----------
@@ -831,6 +831,10 @@ class InteractionScreen(QWidget):
             Maximum number of fibers to recover, from the Fibers spin box.
         """
         if not state_manager.has_states():
+            return
+
+        if not self._has_expanded_cluster():
+            self._show_recovery_empty_warning()
             return
 
         self.remove_visualization(
@@ -849,11 +853,8 @@ class InteractionScreen(QWidget):
         self._refresh_mesh_projection_if_active()
 
         status = result.get("status")
-        if status == "no_selection":
-            self._show_fibers_message(
-                "Nothing selected",
-                "Select the cluster(s) you want to grow before recovering fibers.",
-            )
+        if status == "no_expanded":
+            self._show_recovery_empty_warning()
         elif status == "pool_empty":
             self._show_fibers_message(
                 "Nothing to recover",
@@ -882,6 +883,14 @@ class InteractionScreen(QWidget):
         """Show the styled warning when no expanded cluster exists."""
         self._show_fibers_message(
             "Nothing to capture", "Expand a cluster before capturing a view."
+        )
+
+    def _show_recovery_empty_warning(self):
+        """Show the styled warning when recovery is attempted without an
+        expanded cluster.
+        """
+        self._show_fibers_message(
+            "Nothing to recover", "Expand a cluster before recovering fibers."
         )
 
     def _show_reference_image_required_warning(self):

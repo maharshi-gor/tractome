@@ -883,17 +883,17 @@ class VisualizationManager:
         self._apply_tractogram_states()
 
     def recover_neighbors(self, budget, *, nprobe=RECOVERY_NPROBE):
-        """Pull the closest un-shown fibers back around the selected clusters.
+        """Pull the closest un-shown fibers back around the expanded clusters.
 
         Restores fibers that left the scene -- dropped by the load-time
         subsample, removed with Delete, or never sampled at all -- by ranking
-        every eligible fiber on its distance to the selected bundle in
+        every eligible fiber on its distance to the expanded bundle in
         dissimilarity space and taking the ``budget`` closest. Recovered fibers
         join the existing cluster whose medoid they sit nearest, so cluster
         colors and identities are preserved rather than reshuffled.
 
         The result is pushed as a new state, so Prev State undoes it. Clusters
-        that gain fibers are expanded, otherwise the recovered fibers would be
+        that gain fibers stay expanded, otherwise the recovered fibers would be
         hidden behind an unchanged representative and the action would look
         like it did nothing.
 
@@ -908,9 +908,10 @@ class VisualizationManager:
         -------
         dict
             ``{"status": ...}`` where status is ``"ok"`` (with ``recovered``,
-            ``pool`` and ``clusters`` counts), ``"no_selection"`` when nothing
-            is selected, ``"pool_empty"`` when every eligible fiber is already
-            on screen, or ``"unavailable"`` when there is nothing to act on.
+            ``pool`` and ``clusters`` counts), ``"no_expanded"`` when no
+            cluster is expanded, ``"pool_empty"`` when every eligible fiber is
+            already on screen, or ``"unavailable"`` when there is nothing to
+            act on.
         """
         if not state_manager.has_states() or not input_manager.has_tractogram:
             return {"status": "unavailable"}
@@ -920,13 +921,13 @@ class VisualizationManager:
         if not cluster_states:
             return {"status": "unavailable"}
 
-        selected_ids = [
+        expanded_ids = [
             cluster_id
             for cluster_id, data in cluster_states.items()
-            if data["selected"]
+            if data.get("expanded")
         ]
-        if not selected_ids:
-            return {"status": "no_selection"}
+        if not expanded_ids:
+            return {"status": "no_expanded"}
 
         budget = int(budget)
         if budget <= 0:
@@ -970,9 +971,9 @@ class VisualizationManager:
                 cluster_states[cluster_id]["streamline_ids"], dtype=np.int32
             ).reshape(-1)
 
-        bundle_ids = np.unique(np.concatenate([ids_of(cid) for cid in selected_ids]))
+        bundle_ids = np.unique(np.concatenate([ids_of(cid) for cid in expanded_ids]))
         if bundle_ids.size == 0:
-            return {"status": "no_selection"}
+            return {"status": "no_expanded"}
 
         # Everything currently on screen is off-limits: the state's own id set
         # plus each cluster's, which can differ once an ROI filter narrowed the
@@ -998,7 +999,7 @@ class VisualizationManager:
             return {"status": "pool_empty"}
 
         assignment = assign_to_nearest_medoid(
-            dismatrix, recovered, np.asarray(selected_ids, dtype=np.int32)
+            dismatrix, recovered, np.asarray(expanded_ids, dtype=np.int32)
         )
         recovered_by_cluster = {}
         for streamline_id, cluster_id in zip(recovered.tolist(), assignment.tolist()):
