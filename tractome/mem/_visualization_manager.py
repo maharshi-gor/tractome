@@ -869,17 +869,29 @@ class VisualizationManager:
         self._apply_tractogram_states()
 
     def delete_clusters(self):
-        """Delete selected clusters."""
+        """Remove non-selected clusters, keeping selected ones without re-clustering.
+
+        Builds a new state from the currently selected cluster entries so that
+        ``_apply_tractogram_states`` skips ``_perform_clustering`` entirely.
+        Each retained entry is shallow-copied so per-entry scalar fields
+        (selected, visible, expanded, …) are independent while actor objects
+        are shared; ``_apply_tractogram_states`` overwrites those properties
+        on every call anyway, so sharing is safe.
+        """
         latest_state = state_manager.get_latest_state()
+        new_tractogram_states = {
+            cid: dict(data)
+            for cid, data in latest_state.tractogram_states.items()
+            if data["selected"]
+        }
         streamline_ids = []
-        for state_data in latest_state.tractogram_states.values():
-            if state_data["selected"]:
-                streamline_ids.extend(state_data["streamline_ids"])
+        for data in new_tractogram_states.values():
+            streamline_ids.extend(data["streamline_ids"])
         streamline_ids = np.unique(streamline_ids)
-        nb_clusters = min(latest_state.nb_clusters, len(streamline_ids))
-        state_manager.add_state(
-            ClusterState(nb_clusters, streamline_ids, latest_state.max_clusters)
-        )
+        nb_clusters = len(new_tractogram_states)
+        new_state = ClusterState(nb_clusters, streamline_ids, latest_state.max_clusters)
+        new_state.tractogram_states = new_tractogram_states
+        state_manager.add_state(new_state)
         self._apply_tractogram_states()
 
     def recover_neighbors(self, budget, *, nprobe=RECOVERY_NPROBE):
