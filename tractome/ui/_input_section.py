@@ -1,15 +1,16 @@
 from pathlib import Path
 
 from PySide6.QtCore import QSize, QTimer, Qt, Signal
-from PySide6.QtGui import QIcon
+from PySide6.QtGui import QAction, QIcon
 from PySide6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
+    QColorDialog,
     QComboBox,
     QFrame,
-    QGraphicsOpacityEffect,
     QHBoxLayout,
     QLabel,
+    QMenu,
     QPushButton,
     QRadioButton,
     QSizePolicy,
@@ -22,6 +23,51 @@ from PySide6.QtWidgets import (
 from tractome.mem import input_manager, state_manager, visualization_manager
 from tractome.ui._paths import ICONS_PATH
 from tractome.ui.utils import open_file_dialog
+
+
+def _make_popup_menu_button(parent, actions, *, object_name="popupMenuButton"):
+    """Build a 3-dot ``QToolButton`` with an ``InstantPopup`` ``QMenu``.
+
+    Parameters
+    ----------
+    parent : QWidget
+        Owner widget.
+    actions : list of tuple
+        Each element is ``(label, icon_path_or_None, callback)``.
+    object_name : str, optional
+        Qt object name applied to the button for QSS targeting.
+
+    Returns
+    -------
+    tuple[QToolButton, dict[str, QAction]]
+        The configured button (with its menu attached) and a mapping of
+        action label to the created ``QAction``, so callers can toggle
+        per-action visibility (e.g. Include/Exclude in 2D mode).
+    """
+    button = QToolButton(parent)
+    button.setObjectName(object_name)
+    button.setFixedSize(28, 28)
+    button.setIcon(QIcon(str(ICONS_PATH / "more.svg")))
+    button.setIconSize(QSize(3, 13))
+    button.setToolButtonStyle(Qt.ToolButtonIconOnly)
+    button.setPopupMode(QToolButton.InstantPopup)
+    button.setCursor(Qt.PointingHandCursor)
+    button.setAutoRaise(True)
+
+    menu = QMenu(button)
+    menu.setObjectName("itemPopupMenu")
+
+    action_map = {}
+    for label, icon_path, callback in actions:
+        action = QAction(label, button)
+        if icon_path is not None:
+            action.setIcon(QIcon(str(ICONS_PATH / icon_path)))
+        action.triggered.connect(lambda _checked=False, cb=callback: cb())
+        menu.addAction(action)
+        action_map[label] = action
+
+    button.setMenu(menu)
+    return button, action_map
 
 
 class ImageInputWidget(QFrame):
@@ -62,14 +108,14 @@ class ImageInputWidget(QFrame):
         self.image_dropdown.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.file_input_layout.addWidget(self.image_dropdown)
 
-        self.t1_visibility_button = QPushButton("")
-        self.t1_visibility_button.setObjectName("t1VisibilityButton")
-        self.t1_visibility_button.setIcon(QIcon(str(ICONS_PATH / "eye.svg")))
-        self.t1_visibility_button.setIconSize(QSize(18, 18))
-        self.t1_visibility_button.setFixedSize(std_h, std_h)
-        self.t1_visibility_effect = QGraphicsOpacityEffect(self.t1_visibility_button)
-        self.t1_visibility_button.setGraphicsEffect(self.t1_visibility_effect)
-        self.file_input_layout.addWidget(self.t1_visibility_button)
+        self.image_menu_button, self._image_menu_actions = _make_popup_menu_button(
+            self,
+            [
+                ("Hide/Show", "eye.svg", self._on_t1_visibility_clicked),
+                ("Delete", "close.svg", self._on_remove_image_clicked),
+            ],
+        )
+        self.file_input_layout.addWidget(self.image_menu_button)
 
         self.main_layout.addLayout(self.file_input_layout)
 
@@ -126,10 +172,8 @@ class ImageInputWidget(QFrame):
         self.main_layout.addWidget(self.slice_controls_widget)
 
         self.upload_button.setCursor(Qt.PointingHandCursor)
-        self.t1_visibility_button.setCursor(Qt.PointingHandCursor)
         self.upload_button.clicked.connect(self._on_upload_clicked)
         self.image_dropdown.currentIndexChanged.connect(self._on_selection_changed)
-        self.t1_visibility_button.clicked.connect(self._on_t1_visibility_clicked)
         for axis in ("x", "y", "z"):
             self._slice_sliders[axis].valueChanged.connect(
                 lambda _value, a=axis: self._on_slice_changed(a)
@@ -174,31 +218,36 @@ class ImageInputWidget(QFrame):
         QTimer.singleShot(0, self._scroll_dropdown_text_to_start)
 
     def _on_t1_visibility_clicked(self):
-        """Toggle T1 scene visibility and dim the eye icon when hidden."""
+        """Toggle T1 scene visibility."""
         visualization_manager.toggle_t1_visibility()
         self._sync_t1_visibility_appearance()
         self.t1_visibility_changed.emit()
 
+    def _on_remove_image_clicked(self):
+        """Remove the currently selected T1 image."""
+        if not input_manager.has_t1:
+            return
+        idx = input_manager.current_t1_index
+        if idx < 0:
+            return
+        input_manager.remove_t1(idx)
+        self.refresh_images()
+        self.t1_changed.emit()
+
     def sync_t1_visibility_button(self):
-        """Update eye icon opacity from the current T1 visibility in the scene."""
+        """Kept for callers that refresh visibility state after a rebuild."""
         self._sync_t1_visibility_appearance()
 
     def _sync_t1_visibility_appearance(self):
-        """White (full opacity) when visible, lighter when hidden.
+        """Show/hide the image menu and slice controls for the current T1.
 
-        The eye toggle is also hidden when slice controls are in radio
+        The menu button is also hidden when slice controls are in radio
         mode (2D view), where the active slice is always shown.
         """
         has_t1 = input_manager.has_t1
         is_radio = self._slice_control_mode == "radio"
-        self.t1_visibility_button.setVisible(has_t1 and not is_radio)
+        self.image_menu_button.setVisible(has_t1 and not is_radio)
         self.slice_controls_widget.setVisible(has_t1)
-        if not has_t1:
-            return
-        if visualization_manager.t1_is_visible:
-            self.t1_visibility_effect.setOpacity(1.0)
-        else:
-            self.t1_visibility_effect.setOpacity(0.42)
 
     def _on_upload_clicked(self):
         """Upload a T1 image and set it as current."""
@@ -471,21 +520,14 @@ class MeshInputWidget(QFrame):
         self.mesh_dropdown.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.mesh_row.addWidget(self.mesh_dropdown)
 
-        self.mesh_visibility_button = QPushButton("")
-        self.mesh_visibility_button.setObjectName("meshVisibilityButton")
-        self.mesh_visibility_button.setIcon(QIcon(str(ICONS_PATH / "eye.svg")))
-        self.mesh_visibility_button.setIconSize(QSize(18, 18))
-        self.mesh_visibility_button.setFixedSize(std_h, std_h)
-        self.mesh_visibility_effect = QGraphicsOpacityEffect(
-            self.mesh_visibility_button
+        self.mesh_menu_button, self._mesh_menu_actions = _make_popup_menu_button(
+            self,
+            [
+                ("Hide/Show", "eye.svg", self._on_mesh_visibility_clicked),
+                ("Delete", "close.svg", self._on_remove_mesh_clicked),
+            ],
         )
-        self.mesh_visibility_button.setGraphicsEffect(self.mesh_visibility_effect)
-        self.mesh_row.addWidget(self.mesh_visibility_button)
-
-        self.mesh_remove_button = QPushButton("×")
-        self.mesh_remove_button.setObjectName("meshRemoveButton")
-        self.mesh_remove_button.setFixedSize(std_h, std_h)
-        self.mesh_row.addWidget(self.mesh_remove_button)
+        self.mesh_row.addWidget(self.mesh_menu_button)
 
         self.main_layout.addLayout(self.mesh_row)
 
@@ -564,13 +606,9 @@ class MeshInputWidget(QFrame):
         self.main_layout.addWidget(self._mesh_controls)
 
         self.mesh_upload_button.setCursor(Qt.PointingHandCursor)
-        self.mesh_visibility_button.setCursor(Qt.PointingHandCursor)
-        self.mesh_remove_button.setCursor(Qt.PointingHandCursor)
 
         self.mesh_upload_button.clicked.connect(self._on_mesh_upload_clicked)
         self.mesh_dropdown.currentIndexChanged.connect(self._on_mesh_dropdown_changed)
-        self.mesh_visibility_button.clicked.connect(self._on_mesh_visibility_clicked)
-        self.mesh_remove_button.clicked.connect(self._on_remove_mesh_clicked)
         self.opacity_slider.valueChanged.connect(self._on_opacity_changed)
         self.photographic_checkbox.toggled.connect(self._on_photographic_toggled)
         self.project_checkbox.toggled.connect(self._on_project_toggled)
@@ -611,15 +649,8 @@ class MeshInputWidget(QFrame):
     def _sync_mesh_visibility_appearance(self):
         """Synchronize mesh controls with the current mesh visibility state."""
         has_mesh = input_manager.has_mesh
-        self.mesh_visibility_button.setVisible(has_mesh)
-        self.mesh_remove_button.setEnabled(has_mesh)
+        self.mesh_menu_button.setVisible(has_mesh)
         self._update_mesh_controls_visibility()
-        if not has_mesh:
-            return
-        if visualization_manager.mesh_is_visible:
-            self.mesh_visibility_effect.setOpacity(1.0)
-        else:
-            self.mesh_visibility_effect.setOpacity(0.42)
 
     def _update_mesh_controls_visibility(self):
         """Show mesh controls only when at least one mesh is loaded."""
@@ -812,6 +843,7 @@ class ParcelInputWidget(QFrame):
     parcel_changed = Signal()
     parcel_visibility_changed = Signal()
     parcel_size_changed = Signal(int)
+    parcel_color_changed = Signal(tuple)
 
     def __init__(self, *, parent=None):
         super().__init__(parent)
@@ -847,21 +879,15 @@ class ParcelInputWidget(QFrame):
         self.parcel_dropdown.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.parcel_row.addWidget(self.parcel_dropdown)
 
-        self.parcel_visibility_button = QPushButton("")
-        self.parcel_visibility_button.setObjectName("parcelVisibilityButton")
-        self.parcel_visibility_button.setIcon(QIcon(str(ICONS_PATH / "eye.svg")))
-        self.parcel_visibility_button.setIconSize(QSize(18, 18))
-        self.parcel_visibility_button.setFixedSize(std_h, std_h)
-        self.parcel_visibility_effect = QGraphicsOpacityEffect(
-            self.parcel_visibility_button
+        self.parcel_menu_button, self._parcel_menu_actions = _make_popup_menu_button(
+            self,
+            [
+                ("Hide/Show", "eye.svg", self._on_parcel_visibility_clicked),
+                ("Colour", "color.svg", self._on_parcel_color_clicked),
+                ("Delete", "close.svg", self._on_remove_parcel_clicked),
+            ],
         )
-        self.parcel_visibility_button.setGraphicsEffect(self.parcel_visibility_effect)
-        self.parcel_row.addWidget(self.parcel_visibility_button)
-
-        self.parcel_remove_button = QPushButton("×")
-        self.parcel_remove_button.setObjectName("parcelRemoveButton")
-        self.parcel_remove_button.setFixedSize(std_h, std_h)
-        self.parcel_row.addWidget(self.parcel_remove_button)
+        self.parcel_row.addWidget(self.parcel_menu_button)
 
         self.main_layout.addLayout(self.parcel_row)
 
@@ -897,17 +923,11 @@ class ParcelInputWidget(QFrame):
         self.main_layout.addWidget(self._parcel_controls)
 
         self.parcel_upload_button.setCursor(Qt.PointingHandCursor)
-        self.parcel_visibility_button.setCursor(Qt.PointingHandCursor)
-        self.parcel_remove_button.setCursor(Qt.PointingHandCursor)
 
         self.parcel_upload_button.clicked.connect(self._on_parcel_upload_clicked)
         self.parcel_dropdown.currentIndexChanged.connect(
             self._on_parcel_dropdown_changed
         )
-        self.parcel_visibility_button.clicked.connect(
-            self._on_parcel_visibility_clicked
-        )
-        self.parcel_remove_button.clicked.connect(self._on_remove_parcel_clicked)
         self.opacity_slider.valueChanged.connect(self._on_size_changed)
 
         self._poll_timer = QTimer(self)
@@ -929,18 +949,21 @@ class ParcelInputWidget(QFrame):
         self._sync_parcel_visibility_appearance()
         self.parcel_visibility_changed.emit()
 
+    def _on_parcel_color_clicked(self):
+        """Open a color picker and apply the choice to every parcel point."""
+        if not input_manager.has_parcel:
+            return
+        color = QColorDialog.getColor(parent=self)
+        if not color.isValid():
+            return
+        rgb = (color.redF(), color.greenF(), color.blueF())
+        self.parcel_color_changed.emit(rgb)
+
     def _sync_parcel_visibility_appearance(self):
         """Synchronize parcel controls with the current visibility state."""
         has_parcel = input_manager.has_parcel
-        self.parcel_visibility_button.setVisible(has_parcel)
-        self.parcel_remove_button.setEnabled(has_parcel)
+        self.parcel_menu_button.setVisible(has_parcel)
         self._update_parcel_controls_visibility()
-        if not has_parcel:
-            return
-        if visualization_manager.parcel_is_visible:
-            self.parcel_visibility_effect.setOpacity(1.0)
-        else:
-            self.parcel_visibility_effect.setOpacity(0.42)
 
     def _update_parcel_controls_visibility(self):
         """Show parcel controls only when at least one parcel is loaded."""
@@ -1269,7 +1292,7 @@ class RoiInputWidget(QFrame):
         self.refresh_rois()
 
     def _sync_row_appearance(self, index):
-        """Dim each per-row button to reflect its current ROI state.
+        """Update the ROI row's menu actions and label to match its state.
 
         Parameters
         ----------
@@ -1279,17 +1302,8 @@ class RoiInputWidget(QFrame):
         if index < 0 or index >= len(self._row_widgets):
             return
         row = self._row_widgets[index]
-        row["visibility_effect"].setOpacity(
-            1.0 if visualization_manager.is_roi_visible_at(index) else 0.42
-        )
-        row["apply_effect"].setOpacity(
-            1.0 if visualization_manager.is_roi_applied_at(index) else 0.42
-        )
-        row["negate_effect"].setOpacity(
-            1.0 if visualization_manager.is_roi_negated_at(index) else 0.42
-        )
-        row["apply_button"].setVisible(self._show_filter_controls)
-        row["negate_button"].setVisible(self._show_filter_controls)
+        row["include_action"].setVisible(self._show_filter_controls)
+        row["exclude_action"].setVisible(self._show_filter_controls)
         width = row["label"].width()
         if width > 0:
             row["label"].setText(
@@ -1300,46 +1314,41 @@ class RoiInputWidget(QFrame):
         else:
             row["label"].setText(row["full_name"])
 
-    def _make_icon_button(self, *, object_name, icon_path=None, text="", tooltip=""):
-        """Create a small square icon button used inside an ROI row.
-
-        ``QToolButton`` is used instead of ``QPushButton`` because the latter
-        reserves font-metric space even for icon-only buttons, which pushes
-        the icon below the geometric center.
+    def _on_pick_color(self, index):
+        """Open a color picker and apply the choice to the ROI at ``index``.
 
         Parameters
         ----------
-        object_name : str
-            Qt object name applied to the button for QSS targeting.
-        icon_path : str or None, optional
-            Filesystem path to an SVG icon. If None, ``text`` is used instead.
-        text : str, optional
-            Fallback label drawn on the button when ``icon_path`` is None.
-        tooltip : str, optional
-            Hover tooltip describing the action.
-
-        Returns
-        -------
-        tuple[QToolButton, QGraphicsOpacityEffect]
-            The button and its attached opacity effect for dimming.
+        index : int
+            ROI row index.
         """
-        button = QToolButton()
-        button.setObjectName(object_name)
-        if icon_path is not None:
-            button.setIcon(QIcon(icon_path))
-            button.setIconSize(QSize(16, 16))
-            button.setToolButtonStyle(Qt.ToolButtonIconOnly)
-        elif text:
-            button.setText(text)
-            button.setToolButtonStyle(Qt.ToolButtonTextOnly)
-        button.setAutoRaise(True)
-        button.setFixedSize(28, 28)
-        button.setCursor(Qt.PointingHandCursor)
-        if tooltip:
-            button.setToolTip(tooltip)
-        effect = QGraphicsOpacityEffect(button)
-        button.setGraphicsEffect(effect)
-        return button, effect
+        if index < 0:
+            return
+        color = QColorDialog.getColor(parent=self)
+        if not color.isValid():
+            return
+        self._on_color_change(index, color)
+
+    def _on_color_change(self, index, color):
+        """Apply a user-chosen color to the ROI at ``index``.
+
+        Parameters
+        ----------
+        index : int
+            ROI row index.
+        color : QColor
+            The chosen color.
+        """
+        if index < 0:
+            return
+        rgb = (color.redF(), color.greenF(), color.blueF())
+        visualization_manager.set_roi_color(index, rgb)
+        row = self._row_widgets[index]
+        r, g, b = (int(round(c * 255)) for c in rgb)
+        row["swatch"].setStyleSheet(
+            f"background-color: rgb({r}, {g}, {b}); border-radius: 2px;"
+        )
+        self.rois_changed.emit()
 
     def _build_row(self, index, name, color):
         """Build a single ROI row.
@@ -1381,79 +1390,53 @@ class RoiInputWidget(QFrame):
         label.setToolTip(name)
         row_layout.addWidget(label, 1)
 
-        visibility_button, visibility_effect = self._make_icon_button(
-            object_name="roiVisibilityButton",
-            icon_path=str(ICONS_PATH / "eye.svg"),
-            tooltip="Show/hide ROI",
+        menu_button, menu_actions = _make_popup_menu_button(
+            self,
+            [
+                (
+                    "Hide/Show",
+                    "eye.svg",
+                    lambda w=row_widget: self._on_visibility_clicked(
+                        self._row_index(w)
+                    ),
+                ),
+                (
+                    "Include",
+                    "check.svg",
+                    lambda w=row_widget: self._on_apply_clicked(self._row_index(w)),
+                ),
+                (
+                    "Exclude",
+                    "negation.svg",
+                    lambda w=row_widget: self._on_negate_clicked(self._row_index(w)),
+                ),
+                (
+                    "Colour",
+                    "color.svg",
+                    lambda w=row_widget: self._on_pick_color(self._row_index(w)),
+                ),
+                (
+                    "Save",
+                    "save.svg",
+                    lambda w=row_widget: self._on_save_clicked(self._row_index(w)),
+                ),
+                (
+                    "Delete",
+                    "close.svg",
+                    lambda w=row_widget: self._on_remove_clicked(self._row_index(w)),
+                ),
+            ],
         )
-        visibility_button.clicked.connect(
-            lambda _checked=False, w=row_widget: self._on_visibility_clicked(
-                self._row_index(w)
-            )
-        )
-        row_layout.addWidget(visibility_button)
-
-        apply_button, apply_effect = self._make_icon_button(
-            object_name="roiApplyButton",
-            icon_path=str(ICONS_PATH / "check.svg"),
-            tooltip="Apply ROI as a streamline filter",
-        )
-        apply_button.clicked.connect(
-            lambda _checked=False, w=row_widget: self._on_apply_clicked(
-                self._row_index(w)
-            )
-        )
-        row_layout.addWidget(apply_button)
-
-        negate_button, negate_effect = self._make_icon_button(
-            object_name="roiNegateButton",
-            icon_path=str(ICONS_PATH / "negation.svg"),
-            tooltip="Negate ROI in the filter",
-        )
-        negate_button.clicked.connect(
-            lambda _checked=False, w=row_widget: self._on_negate_clicked(
-                self._row_index(w)
-            )
-        )
-        row_layout.addWidget(negate_button)
-
-        save_button, _save_effect = self._make_icon_button(
-            object_name="roiSaveButton",
-            icon_path=str(ICONS_PATH / "save.svg"),
-            tooltip="Save ROI as NIfTI",
-        )
-        save_button.clicked.connect(
-            lambda _checked=False, w=row_widget: self._on_save_clicked(
-                self._row_index(w)
-            )
-        )
-        row_layout.addWidget(save_button)
-
-        remove_button, _remove_effect = self._make_icon_button(
-            object_name="roiRemoveButton",
-            text="✕",
-            tooltip="Remove ROI",
-        )
-        remove_button.clicked.connect(
-            lambda _checked=False, w=row_widget: self._on_remove_clicked(
-                self._row_index(w)
-            )
-        )
-        row_layout.addWidget(remove_button)
+        row_layout.addWidget(menu_button)
 
         return {
             "widget": row_widget,
             "label": label,
             "full_name": name,
             "swatch": swatch,
-            "visibility_button": visibility_button,
-            "visibility_effect": visibility_effect,
-            "apply_button": apply_button,
-            "apply_effect": apply_effect,
-            "negate_button": negate_button,
-            "negate_effect": negate_effect,
-            "save_button": save_button,
-            "remove_button": remove_button,
+            "menu_button": menu_button,
+            "include_action": menu_actions["Include"],
+            "exclude_action": menu_actions["Exclude"],
         }
 
     def _row_index(self, row_widget):
@@ -1507,14 +1490,15 @@ class TracksWidget(QFrame):
     """Right-side panel listing captured tracks.
 
     The widget shows a single ``Track Default`` header at all times.
-    Each capture appends a row with a checkbox (used to isolate that
-    track in the scene), a save button (exports the streamlines in the
-    formats chosen from the save popup) and a remove button.
+    Each capture appends a row with a color bar, a checkbox (used to
+    isolate that track in the scene), and a 3-dot menu (Save / Colour /
+    Delete).
     """
 
     track_visibility_changed = Signal()
     track_save_requested = Signal(int)
     track_remove_requested = Signal(int)
+    track_color_changed = Signal(int)
 
     def __init__(self, *, parent=None):
         super().__init__(parent)
@@ -1604,34 +1588,33 @@ class TracksWidget(QFrame):
         row_layout.addWidget(checkbox)
         row_layout.addStretch()
 
-        save_button = QToolButton()
-        save_button.setObjectName("trackSaveButton")
-        save_button.setIcon(QIcon(str(ICONS_PATH / "save.svg")))
-        save_button.setIconSize(QSize(14, 14))
-        save_button.setFixedSize(28, 28)
-        save_button.setCursor(Qt.PointingHandCursor)
-        save_button.setToolTip("Save track")
-        save_button.clicked.connect(
-            lambda _checked=False, w=row_widget: self._emit_save(w)
-        )
-        row_layout.addWidget(save_button)
+        color_bar = QFrame()
+        color_bar.setObjectName("trackRowBar")
+        color_bar.setFixedSize(4, 18)
+        r, g, b = (int(round(c * 255)) for c in track["color"])
+        color_bar.setStyleSheet(f"background-color: rgb({r}, {g}, {b});")
+        row_layout.insertWidget(1, color_bar)
 
-        remove_button = QToolButton()
-        remove_button.setObjectName("trackRemoveButton")
-        remove_button.setText("✕")
-        remove_button.setFixedSize(28, 28)
-        remove_button.setCursor(Qt.PointingHandCursor)
-        remove_button.setToolTip("Remove track")
-        remove_button.clicked.connect(
-            lambda _checked=False, w=row_widget: self._emit_remove(w)
+        menu_button, _menu_actions = _make_popup_menu_button(
+            self,
+            [
+                ("Save", "save.svg", lambda w=row_widget: self._emit_save(w)),
+                (
+                    "Colour",
+                    "color.svg",
+                    lambda w=row_widget: self._on_pick_track_color(w),
+                ),
+                ("Delete", "close.svg", lambda w=row_widget: self._emit_remove(w)),
+            ],
         )
-        row_layout.addWidget(remove_button)
+        row_layout.addWidget(menu_button)
 
         self._rows_layout.addWidget(row_widget)
         self._row_widgets.append(
             {
                 "widget": row_widget,
                 "checkbox": checkbox,
+                "color_bar": color_bar,
             }
         )
 
@@ -1692,6 +1675,43 @@ class TracksWidget(QFrame):
         index = self._row_index(row_widget)
         if index >= 0:
             self.track_remove_requested.emit(index)
+
+    def _on_pick_track_color(self, row_widget):
+        """Open a color picker and apply the choice to a track row.
+
+        Parameters
+        ----------
+        row_widget : QWidget
+            Row widget whose Colour action was triggered.
+        """
+        index = self._row_index(row_widget)
+        if index < 0:
+            return
+        color = QColorDialog.getColor(parent=self)
+        if not color.isValid():
+            return
+        self._on_track_color_change(row_widget, color)
+
+    def _on_track_color_change(self, row_widget, qcolor):
+        """Update color for a captured track.
+
+        Parameters
+        ----------
+        row_widget : QWidget
+            The track row widget.
+        qcolor : QColor
+            Selected color.
+        """
+        index = self._row_index(row_widget)
+        if index < 0:
+            return
+        rgb = (qcolor.redF(), qcolor.greenF(), qcolor.blueF())
+        self._tracks[index]["color"] = rgb
+        r, g, b = (int(round(c * 255)) for c in rgb)
+        self._row_widgets[index]["color_bar"].setStyleSheet(
+            f"background-color: rgb({r}, {g}, {b});"
+        )
+        self.track_color_changed.emit(index)
 
     def remove_track(self, index):
         """Remove a track and its row widget.
@@ -1782,20 +1802,6 @@ class RightSectionWidget(QFrame):
         self.tracks_widget = TracksWidget(parent=self)
         self.main_layout.addWidget(self.tracks_widget)
 
-        toggle_row = QHBoxLayout()
-        toggle_row.setContentsMargins(0, 0, 0, 0)
-        toggle_row.setSpacing(8)
-        self.btn_toggle_info = QPushButton("Toggle info")
-        self.btn_toggle_info.setObjectName("trackToggleButton")
-        self.btn_toggle_info.setCursor(Qt.PointingHandCursor)
-        toggle_row.addWidget(self.btn_toggle_info)
-
-        self.btn_toggle_shortcuts = QPushButton("Toggle shortcuts")
-        self.btn_toggle_shortcuts.setObjectName("trackToggleButton")
-        self.btn_toggle_shortcuts.setCursor(Qt.PointingHandCursor)
-        toggle_row.addWidget(self.btn_toggle_shortcuts)
-        self.main_layout.addLayout(toggle_row)
-
         self.add_ons_title = QLabel("Add ons")  # codespell:ignore 'ons'
         self.add_ons_title.setObjectName("rightSectionTitle")
         self.main_layout.addWidget(self.add_ons_title)
@@ -1810,3 +1816,17 @@ class RightSectionWidget(QFrame):
         self.main_layout.addWidget(self.parcel_input_widget)
 
         self.main_layout.addStretch()
+
+        toggle_row = QHBoxLayout()
+        toggle_row.setContentsMargins(0, 0, 0, 0)
+        toggle_row.setSpacing(8)
+        self.btn_toggle_info = QPushButton("Toggle info")
+        self.btn_toggle_info.setObjectName("trackToggleButton")
+        self.btn_toggle_info.setCursor(Qt.PointingHandCursor)
+        toggle_row.addWidget(self.btn_toggle_info)
+
+        self.btn_toggle_shortcuts = QPushButton("Toggle shortcuts")
+        self.btn_toggle_shortcuts.setObjectName("trackToggleButton")
+        self.btn_toggle_shortcuts.setCursor(Qt.PointingHandCursor)
+        toggle_row.addWidget(self.btn_toggle_shortcuts)
+        self.main_layout.addLayout(toggle_row)
